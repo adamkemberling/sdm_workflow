@@ -10,6 +10,7 @@ output:
     code_folding: show
 editor_options: 
   chunk_output_type: console
+knit: (function(input, ...) {rmarkdown::render(input)})
 
 ---
 

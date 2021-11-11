@@ -13,7 +13,7 @@ params:
   climate_stop: "2014"
 editor_options: 
   chunk_output_type: console
-
+knit: (function(input, ...) {rmarkdown::render(input)})
 ---
 
 ```{r setup, include=FALSE}
@@ -356,16 +356,19 @@ plot(cmip_anoms_bcorrect[[1]][[1]],
 
 ### Saving Bias Corrected CMIP6 Runs
 
-```{r, eval = FALSE}
-# iwalk(cmip_anoms_bcorrect, function(bias_corrections, run_name){
-#    paste0(cmip_path, "BiasCorrected/", pick_var)
-#    out_location <- paste0(cmip_path, "BiasCorrected/", pick_var, "/", run_name, ".grd")
-#    message(paste0("Saving ", run_name, " at: \n", out_location))
-#    # writeRaster(bias_corrections, out_location, overwrite = T)
-#   
-# })
-```
+```{r}
+pick_var <- "surf_temp"
 
+# set folder destination
+bias_correction_folder <- box_path("res", str_c("CMIP6/BiasCorrected/IndividualModels/", pick_var, "/"))
+
+# Save the individual models as their own rasters
+iwalk(cmip_anoms_bcorrect, function(bias_corrected_dat, cmip_id){
+  save_file <- bias_corrected_dat
+  save_name <- str_c(bias_correction_folder, pick_var, "_", cmip_id, ".grd")
+  writeRaster(x = save_file, filename = save_name, overwrite = T)
+})
+```
 
 
 
@@ -509,5 +512,78 @@ writeRaster(full_mean, paste0(var_path, "_OISST_bias_corrected_mean.grd"), overw
 writeRaster(full_95th, paste0(var_path, "_OISST_bias_corrected_95thpercentile.grd"), overwrite = T)
 ```
 
+
+### Checking Trajectories
+
+This is more meaningful at the regional scale, but can be done here
+
+```{r}
+# Process means and date formats for a monthly raster stack
+stack_to_df <- function(month_stack){
+  cellStats(month_stack, mean, na.rm = T) %>% 
+    as.data.frame() %>% 
+    rownames_to_column() %>% 
+    setNames(c("date", pick_var)) %>% 
+    mutate(date = str_remove(date, "X"),
+           date = str_replace_all(date, "[.]", "-"),
+           date = as.Date(str_c(date, "-15")))
+}
+
+
+
+```
+
+#### Process Timeseries
+
+```{r}
+
+# 1. All the individual outputs
+# make timeseries of the means of each individual model
+bcorrect_anoms <- map_dfr(.x = cmip_anoms_bcorrect, .f = stack_to_df, .id = "cmip_id")
+
+# 2.  5th percentile
+# make timeseries for 5th, mean, and 95th percentile
+ts_5 <- stack_to_df(full_5th) %>%  
+  mutate(cmip_id = "5th Percentile")
+
+# 3.
+ts_mean <- stack_to_df(full_mean) %>%  
+  mutate(cmip_id = "Ensemble Mean")
+
+
+# 4.
+ts_95 <- stack_to_df(full_95th) %>%  
+  mutate(cmip_id = "95th Percentile")
+```
+
+#### Plot Timeseries
+
+```{r}
+# Tidy up the y label for variable
+var_neat <- switch(pick_var,
+                   "surf_temp" = "Surface Temperature",
+                   "surf_sal" = "Surface Salinity", 
+                   "bot_temp" = "Bottom Temperature",
+                   "bot_sal" = "Bottom Salinity" )
+
+# palette options
+spaghetti_pal <- c(
+  "Individual CMIP6 Output" = "gray",
+  "5th Percentile" = "lightblue",
+  "Ensemble Mean" = as.character(gmri_cols("gmri blue")),
+  "95th Percentile" = "dark red")
+
+
+
+# Plot different scenarios against the quantiles
+ggplot(bcorrect_anoms, aes_string("date", pick_var, group = "cmip_id")) +
+  geom_line(aes(color = "Individual CMIP6 Output"), alpha = 0.5, size = 0.6) +
+  geom_line(data = ts_5, aes(color = cmip_id), alpha = 0.7) +
+  geom_line(data = ts_mean, aes(color = cmip_id), alpha = 0.7) +
+  geom_line(data = ts_95, aes(color = cmip_id), alpha = 0.7) +
+  scale_color_manual(values = spaghetti_pal) +
+  labs(x = "Date", y = var_neat, color = "Ensemble Statistic")
+  
+```
 
 `r insert_gmri_footer()`

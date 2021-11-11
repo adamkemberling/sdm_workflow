@@ -1,0 +1,1019 @@
+---
+title: "Bias-Corrected Regional CMIP Projections"
+author: "Adam A. Kemberling"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float:
+        collapsed: FALSE
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+knit: (function(input, ...) {rmarkdown::render(input)})
+---
+
+```{r setup, include=FALSE}
+# Set knitr options
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F, comment = NA)
+options(knitr.kable.NA = '')
+
+###__ Packages  ####
+library(here)
+library(ncdf4)
+library(RNetCDF)
+library(rnaturalearth)
+library(raster)
+# library(terra)
+library(janitor)
+library(gmRi)
+library(patchwork)
+library(tidyverse)
+library(knitr)
+library(sf)
+library(ggforce)
+
+
+
+# Load the build code and stratification function
+box_paths  <- research_access_paths()
+res_path   <- box_paths$res
+oisst_path <- box_paths$oisst_mainstays
+cmip_path  <- box_path("RES_Data", "CMIP6/SSP5_85/BiasCorrected")
+soda_path  <- box_path("RES_Data", "SODA")
+
+# Set theme  
+theme_set(theme_bw() +
+            theme(legend.position = "bottom",
+                  strip.text = element_text(color = "white", 
+                                            face = "bold"),
+                  strip.background = element_rect(
+                    color = "white", 
+                    fill = "#36454F", 
+                    size = 0.75, 
+                    linetype="solid"), 
+            legend.background = element_rect(fill = "transparent", 
+                                             color = "black")))
+
+#  color palette for quick raster displays
+temp_pal <- rev(RColorBrewer::brewer.pal(n = 10, name = "RdBu"))
+
+# Coastlines
+world       <- ne_countries(scale = "medium", returnclass = "sf")
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+####  Functions  ####
+source(here("CMIP6_processing/R/sdm_workflow_funs.R"))
+```
+
+
+
+`r use_gmri_style_rmd(css_file = "gmri_rmarkdown.css")`
+
+
+# Validating the Bias-Corrections for CMIP6 Data
+
+This report exists to visually compare the bias-corrected CMIP6 data against the real-world observation data sources used to bias-correct them.
+
+Bias corrected timelines for the sea surface temperature, sea surface salinity, bottom temperature, and bottom salinity will be compared against the reference observations (OISSTv2, SODA) to check how accurately they represent observed conditions, and whether that changes between our areas of interest. 
+
+
+## Load Data {.tabset .tabset-pills}
+
+Both the bias-corrections and the observational datasets (OISSTv2, SODA) have been prepared separately and are loaded below.
+
+
+###  Study Areas {.tabset }
+
+For clarity on what data is included/attributed to each region, the areas we focused on have been plotted below.
+
+```{r get polygons}
+
+# Getting Timeseries and Shapefile Locations via gmRi
+# returns path to oisst timeseries & path to shapefile:
+region_groups <- c("nelme_regions", "gmri_sst_focal_areas", "lme", "nmfs_trawl_regions")
+region_lookup <- map(region_groups, function(region_group){
+    mask_details <- get_timeseries_paths(region_group) }) %>% 
+  setNames(region_groups)
+
+# Grab a couple to use from each as contenders
+
+
+# NMFS Trawl Regions
+trawl_gb  <- read_sf(region_lookup$nmfs_trawl_regions$georges_bank$shape_path) 
+trawl_gom <- read_sf(region_lookup$nmfs_trawl_regions$gulf_of_maine$shape_path)
+trawl_mab <- read_sf(region_lookup$nmfs_trawl_regions$mid_atlantic_bight$shape_path)
+trawl_sne <- read_sf(region_lookup$nmfs_trawl_regions$southern_new_england$shape_path)
+
+
+# Load all the strata and just filter out the crap ones
+trawl_full <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.shp"))  %>% 
+  clean_names() %>% 
+  filter(strata >= 01010 ,
+         strata <= 01760,
+         strata != 1310,
+         strata != 1320,
+         strata != 1330,
+         strata != 1350,
+         strata != 1410,
+         strata != 1420,
+         strata != 1490) 
+
+
+# DFO Data
+dfo_path <- shared.path(group = "Mills Lab", folder = "Projects/DFO_survey_data/strata_shapefiles")
+dfo_area <- read_sf(str_c(dfo_path, "MaritimesRegionEcosystemAssessmentBoundary.shp"))
+
+
+# set overall zoom for maps
+xlimz <- c(-76, -57)
+ylimz <- c(35, 48)
+
+# base map
+base_map <- ggplot() +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(title.position = "top", title.hjust = 0.5)) +
+  labs(color = "", 
+       fill = "")
+```
+
+#### NMFS Trawl Areas
+
+```{r}
+# Build off of base map
+
+nmfs_map <- base_map +
+  geom_sf(data = st_union(trawl_full), fill = gmri_cols("gmri blue"), alpha = 0.2) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(title = "US Survey Area")
+
+trawl_gom_map <- base_map +
+  geom_sf(data = st_union(trawl_gom), fill = gmri_cols("gmri green"), alpha = 0.2) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(title = "Gulf of Maine Strata")
+
+nmfs_map | trawl_gom_map
+
+```
+
+####  DFO Survey Areas
+
+```{r}
+
+# Map dfo data 
+base_map + 
+  geom_sf(data = dfo_area, fill = gmri_cols("orange"), alpha = 0.2) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(title = "Canadian Survey Area")
+
+```
+
+#### All Areas
+
+
+```{r}
+base_map +
+  geom_sf(data = st_union(trawl_full), aes(fill = "US Survey Area"), alpha = 0.2) +
+  geom_sf(data = st_union(trawl_gom), aes(fill = "Gulf of Maine Strata"), alpha = 0.2) +
+  geom_sf(data = dfo_area, aes(fill = "Canadian Survey Area"), alpha = 0.2) +
+  scale_fill_gmri(reverse = T) +
+  coord_sf(xlim = xlimz, ylim = ylimz)
+```
+
+
+
+### Historic Observation Datasets
+
+There are two data sources with which the CMIP6 model outputs are checked against to provide bias-corrections. These are the OISSTv2 and SODA reanalysis datasets.
+
+#### SODA
+
+```{r}
+# SODA vars
+soda_ssal  <- stack(str_c(soda_path, "SODA_Salt_Red.nc"))
+soda_bsal  <- stack(str_c(soda_path, "SODA_Salt_Red_bottomLayer.nc"))
+soda_btemp <- stack(str_c(soda_path, "SODA_Temp_Red_bottomLayer.nc"))
+
+```
+
+
+
+#### OISSTv2
+
+
+```{r convert oisst monthly}
+# Load Monthly data
+oisst_month_path <- box_path("res", "OISST/oisst_mainstays/monthly_averages")
+oisst_monthly <- stack(str_c(oisst_month_path, "oisst_monthly.nc"), varname = "sst")
+```
+
+#### Prepping Observation Data
+
+**Cropping Function**
+
+```{r}
+####  Processing Functions
+# Masking function for an area
+mask_shape <- function(in_ras, in_mask){
+  
+  # Check extent for to make sure they overlap
+  in_ext <- extent(in_ras)
+  if(in_ext@xmax > 180){
+    out_extent <- in_ext - c(360, 360, 0, 0)
+    in_ras <- setExtent(in_ras, out_extent)
+  }
+  
+  # crop+mask
+  r1 <- crop(x = in_ras, y = in_mask)
+  r2 <- mask(x = r1, mask = in_mask)
+  return(r2)}
+```
+
+**Raster to Timeseries**
+
+```{r}
+# Function to turn it into a dataframe using cellstats
+timeseries_from_mask <- function(ras_in, var_name){
+  ts <- cellStats(ras_in, mean, na.rm = T)
+  ts <- ts %>% 
+    as.data.frame() %>% 
+    rownames_to_column() %>% 
+    setNames(c("date", var_name)) %>% 
+    mutate(date = str_remove(date, "X"),
+           date = str_replace_all(date, "[.]", "-"))
+  
+  # Check the length of the names, repair with 15th of month when missing
+  date_len <- str_length(ts$date[1])
+  if(date_len == 7){
+    ts <- ts %>% 
+      mutate(date = str_c(date, "-15"),
+             date = as.Date(date))
+  } else{
+    ts <- mutate(ts, 
+                 date = as.Date(date))
+  }
+  
+  return(ts)
+}
+```
+
+**Process Observation Data**
+
+```{r}
+# Put observed variables in a list
+observed_vars <- list(
+  bot_temp  = soda_btemp,
+  bot_sal   = soda_bsal,
+  surf_sal  = soda_ssal,
+  surf_temp = oisst_monthly)
+
+# Now mask them all and get timeseries
+masked_vars <- imap(observed_vars, function(masking_var, var_name){
+  
+  # Mask and get timeseries
+  masked_gom   <- mask_shape(masking_var, trawl_gom)
+  masked_gom   <- timeseries_from_mask(masked_gom, var_name)
+  masked_trawl <- mask_shape(masking_var, trawl_full)
+  masked_trawl <- timeseries_from_mask(masked_trawl,var_name)
+  masked_dfo   <- mask_shape(masking_var, dfo_area)
+  masked_dfo   <- timeseries_from_mask(masked_dfo, var_name)
+    
+  # Put in list
+  list(
+    "Gulf of Maine Strata"  = masked_gom,
+    "US Survey Area" = masked_trawl,
+    "Canadian Survey Area"   = masked_dfo)
+  
+}) 
+
+
+
+
+# Get Time Periods to SODA/OISST
+soda_years  <- unique(str_sub(names(soda_ssal), 2, 5))
+oisst_years <- unique(str_sub(names(oisst_monthly), 2, 5))
+
+
+# clean up things we don't need
+#rm(soda_bsal, soda_btemp, soda_ssal, oisst_monthly)
+```
+
+#### Historic Data Record
+
+
+```{r}
+# Use tidy names to subset variables and rename when using map
+vars_neat <- c("Surface Temperature" = "surf_temp",
+               "Surface Salinity" = "surf_sal",
+               "Bottom Temperature" = "bot_temp",
+               "Bottom Salinity" = "bot_sal")
+
+
+
+
+
+# Put all the historic timelines into a table of yearly averages
+all_historic <- imap_dfr(vars_neat, function(var_name, var_name_clean){
+  
+  # make symbol for operating on column name
+  var_sym <- sym(var_name)
+  
+  # Combine to one table
+  all_areas <- bind_rows(
+list(
+  "Gulf of Maine Strata" = masked_vars[[var_name]][["Gulf of Maine Strata"]],
+  "US Survey Area" = masked_vars[[var_name]][["US Survey Area"]],
+  "Canadian Survey Area" =  masked_vars[[var_name]][["Canadian Survey Area"]]), 
+.id = "Region") 
+  
+  
+  # Format
+  year_summaries <- all_areas %>% 
+  mutate(measurement = var_name_clean,
+         var_value = {{var_sym}},
+         year = lubridate::year(date)) %>% 
+    filter(year >= 1982) %>% 
+    group_by(Region, year, measurement) %>% 
+    summarise(value = mean(var_value, na.rm = TRUE),
+              value_z = sd(var_value, na.rm = TRUE),
+              low_ci = (-1.96 * value_z) + value,
+              hi_ci = (1.96 * value_z) + value,
+              .groups = "drop") 
+   
+   return(year_summaries)
+
+  })
+
+
+
+# Set the factor levels
+all_historic <- all_historic %>% 
+  mutate(
+    Region = factor(Region, levels = c("US Survey Area", "Gulf of Maine Strata",  "Canadian Survey Area")),
+    measurement = factor(measurement, levels = names(vars_neat)))
+```
+
+
+
+```{r, fig.height=8, fig.width=8}
+
+# Plot them
+historic_timelines <- ggplot(all_historic, aes(x = year, value)) +
+  geom_line(size = 0.4, aes(color = Region)) +
+  # geom_ribbon(aes(x = year, ymin = low_ci, ymax =  hi_ci,
+  #                 fill = Region), alpha = 0.2) +
+  # scale_fill_gmri() +
+  scale_color_gmri() +
+  facet_wrap(measurement ~ ., scales = "free", ncol = 2) +
+  labs(x = "", y = "Temperature / Salinity") +
+  theme(strip.text.y = element_blank()) +
+  guides(color = guide_legend(title.position = "top", 
+                              title.hjust = 0.5))
+
+# plot
+historic_timelines
+
+
+# Save Figure
+fig_folder <- box_path(box_group = "mills", subfolder = "Projects/sdm_workflow/figures")
+ggsave(plot = historic_timelines, 
+       path = fig_folder, 
+       filename = "cmip-soda-regional-timeseries.png", 
+       dpi = 250)
+
+```
+
+
+
+
+### CMIP6 Bias-Corrected Data {.tabset}
+
+```{r}
+####  Load Bias Corrected Models
+
+# the variables
+var_list <- c("Surface Temperature" = "surf_temp", 
+               "Bottom Temperature" = "bot_temp", 
+               "Surface Salinity" = "surf_sal", 
+               "Bottom Salinity" = "bot_sal")
+
+
+# the base file name
+table_folder <- box_path("res", str_c("CMIP6/SSP5_85/BiasCorrected/TimeseriesData/"))
+
+
+# Load each 
+var_files <- imap(var_list, function(x, y){
+  
+  # For name replacement
+  var_sym <- sym(x)
+  
+  # Full file Name
+  table_name <- str_c(table_folder, "CMIP6_bias_corrected_regional_", x, ".csv")
+  read_csv(table_name, col_types = cols()) %>% 
+    mutate(variable = y) %>% 
+    rename(bias_corrected_value = {{var_sym}})
+})
+
+
+
+
+# make the individual timelines annual timelines
+vars_annual <- map(var_files, function(x){
+  x %>% 
+    group_by(cmip_id, data_source, ensemble_statistic, Region, variable, year) %>% 
+    summarise(bias_corrected_value = mean(bias_corrected_value, na.rm = T),
+              .groups = "drop")
+  
+  
+})
+```
+
+
+
+```{r spaghetti plots, fig.width=10, fig.height=8}
+
+# plot all at once
+var_plot <- function(var_data, var_select){
+  spaghetti_pal <- c(
+    "Individual CMIP6 Output" = "gray",
+    "5th Percentile" = "lightblue",
+    "Ensemble Mean" = as.character(gmri_cols("gmri blue")),
+    "95th Percentile" = "dark red")
+  
+  spaghetti_sizes <- c(
+    "Individual CMIP6 Output" = 0.3,
+    "5th Percentile" = .75,
+    "Ensemble Mean" = .75,
+    "95th Percentile" = .75)
+  
+  spaghetti_alpha <- c(
+    "Individual CMIP6 Output" = 0.2,
+    "5th Percentile" = .6,
+    "Ensemble Mean" = .6,
+    "95th Percentile" = .6)
+  
+  # format variable for display on axis
+  var_titles <- c(
+    "bot_temp" = expression("Bottom Temperature"~degree~"C"),
+    "surf_temp" = expression("Surface Temperature"~degree~"C"),
+    "bot_sal" = "Bottom Salinity",
+    "surf_sal" = "Surface Salinity")
+  var_label <- var_titles[var_select]
+  
+  
+  # And Plot!
+  ggplot(data = filter(var_data, 
+                       ensemble_statistic == "Individual CMIP6 Output"), 
+         aes(year, bias_corrected_value, 
+             group = cmip_id, 
+             color = ensemble_statistic,
+             size = ensemble_statistic,
+             alpha = ensemble_statistic)) +
+    geom_line() +
+    geom_line(data = filter(var_data, 
+                            ensemble_statistic != "Individual CMIP6 Output")) +
+    scale_color_manual(values = spaghetti_pal) +
+    scale_size_manual(values = spaghetti_sizes) +
+    scale_alpha_manual(values = spaghetti_alpha) +
+    facet_wrap(~Region, nrow = 1) +
+    labs(x = "", 
+         y = var_label, 
+         color = "Ensemble Statistic") +
+    guides(color = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 2),
+           alpha = "none",
+           size = "none") +
+    theme(axis.text = element_text(size = 7))
+  
+}
+
+
+
+# Plot all 4
+temp_top <- var_plot(vars_annual$`Surface Temperature`, "surf_temp")
+temp_bot <- var_plot(vars_annual$`Bottom Temperature`, "bot_temp")
+sal_top <- var_plot(vars_annual$`Surface Salinity`, "surf_sal")
+sal_bot <- var_plot(vars_annual$`Bottom Salinity`, "bot_sal")
+
+# assemble
+quad_plot <- ((temp_top / temp_bot) | (sal_top / sal_bot)) + plot_layout(guides = "collect")
+quad_plot
+
+
+
+# Save figure
+fig_folder <- box_path("mills", "Projects/sdm_workflow/figures")
+ggsave(plot = quad_plot, 
+       path = fig_folder,
+       filename = "regional-bias-corrected-projections.png", 
+       dpi = 250, width = 10, height = 5)
+```
+
+
+
+
+#### Mean
+
+
+```{r, eval = FALSE}
+
+# Pulling directly from here creates a ton of  downstream problems...
+
+
+# # bind the individual variables into one table
+# all_cmip <- bind_rows(var_files)
+# 
+# 
+# # # Pull each variable and scenario out from masked table
+# masked_cmip <- all_cmip %>% filter(ensemble_statistic == "Ensemble Mean") %>% 
+#   split(.$variable) %>% 
+#   map(function(.x){ .x %>% split(.$Region) })
+# masked_cmip_5 <- all_cmip %>% filter(ensemble_statistic == "Ensemble Mean")  %>% 
+#   split(.$variable) %>% 
+#   map(function(.x){ .x %>% split(.$Region) })
+# masked_cmip_95 <- all_cmip %>% filter(ensemble_statistic == "95th Percentile") %>% 
+#   split(.$variable) %>% 
+#   map(function(.x){ .x %>% split(.$Region) })
+
+```
+
+
+```{r means}
+
+
+
+# CMIP Bias Corrected
+cmip_stemp <- stack(str_c(cmip_path, "EnsembleData/surf_temp/surf_temp_OISST_bias_corrected_mean.grd"))
+cmip_btemp <- stack(str_c(cmip_path, "EnsembleData/bot_temp/bot_temp_SODA_bias_corrected_mean.grd"))
+cmip_ssal  <- stack(str_c(cmip_path, "EnsembleData/surf_sal/surf_sal_SODA_bias_corrected_mean.grd"))
+cmip_bsal  <- stack(str_c(cmip_path, "EnsembleData/bot_sal/bot_sal_SODA_bias_corrected_mean.grd"))
+
+
+# Cmip matches to SODA/OISST Time Periods
+soda_index  <- which(str_sub(names(cmip_bsal), 2, 5) %in% soda_years)
+oisst_index <- which(str_sub(names(cmip_stemp), 2, 5) %in% oisst_years)
+
+
+# Put them in a list
+cmip_vars <- list(
+  "Bottom Temperature"  = cmip_btemp,
+  "Bottom Salinity"   = cmip_bsal,
+  "Surface Salinity"  = cmip_ssal,
+  "Surface Temperature" = cmip_stemp)
+
+# Rotate them:
+cmip_vars <- map(cmip_vars, raster::rotate)
+
+
+
+# Now mask them all and get timeseries
+masked_cmip <- imap(cmip_vars, function(masking_var, var_name){
+
+  # Mask and get timeseries
+  masked_gom   <- mask_shape(masking_var, trawl_gom)
+  masked_gom   <- timeseries_from_mask(masked_gom, var_name)
+  masked_trawl <- mask_shape(masking_var, trawl_full)
+  masked_trawl <- timeseries_from_mask(masked_trawl,var_name)
+  masked_dfo   <- mask_shape(masking_var, dfo_area)
+  masked_dfo   <- timeseries_from_mask(masked_dfo, var_name)
+
+  # put in list
+  list(
+    "Gulf of Maine Strata"  = masked_gom,
+    "US Survey Area" = masked_trawl,
+    "Canadian Survey Area" = masked_dfo)
+
+})
+
+
+
+```
+
+#### 5th Percentile
+
+```{r}
+
+
+
+# CMIP Bias Corrected
+cmip_stemp_5 <- stack(str_c(cmip_path, "EnsembleData/surf_temp/surf_temp_OISST_bias_corrected_5thpercentile.grd"))
+cmip_btemp_5 <- stack(str_c(cmip_path, "EnsembleData/bot_temp/bot_temp_SODA_bias_corrected_5thpercentile.grd"))
+cmip_ssal_5  <- stack(str_c(cmip_path, "EnsembleData/surf_sal/surf_sal_SODA_bias_corrected_5thpercentile.grd"))
+cmip_bsal_5  <- stack(str_c(cmip_path, "EnsembleData/bot_sal/bot_sal_SODA_bias_corrected_5thpercentile.grd"))
+
+
+# Put them in a list
+cmip_vars_5 <- list(
+  "Bottom Temperature"  = cmip_btemp_5,
+  "Bottom Salinity"   = cmip_bsal_5,
+  "Surface Salinity"  = cmip_ssal_5,
+  "Surface Temperature" = cmip_stemp_5)
+
+# Rotate them:
+cmip_vars_5 <- map(cmip_vars_5, raster::rotate)
+
+# Now mask them all and get timeseries
+masked_cmip_5 <- imap(cmip_vars_5, function(masking_var, var_name){
+
+  # Mask and get timeseries
+  masked_gom   <- mask_shape(masking_var, trawl_gom)
+  masked_gom   <- timeseries_from_mask(masked_gom, var_name)
+  masked_trawl <- mask_shape(masking_var, trawl_full)
+  masked_trawl <- timeseries_from_mask(masked_trawl,var_name)
+  masked_dfo   <- mask_shape(masking_var, dfo_area)
+  masked_dfo   <- timeseries_from_mask(masked_dfo, var_name)
+
+  # put in list
+  list(
+    "Gulf of Maine Strata"  = masked_gom,
+    "US Survey Area" = masked_trawl,
+    "Canadian Survey Area" = masked_dfo)
+
+})
+```
+
+
+#### 95th Percentile
+
+```{r}
+
+
+# CMIP Bias Corrected
+cmip_stemp_95 <- stack(str_c(cmip_path, "EnsembleData/surf_temp/surf_temp_OISST_bias_corrected_95thpercentile.grd"))
+cmip_btemp_95 <- stack(str_c(cmip_path, "EnsembleData/bot_temp/bot_temp_SODA_bias_corrected_95thpercentile.grd"))
+cmip_ssal_95  <- stack(str_c(cmip_path, "EnsembleData/surf_sal/surf_sal_SODA_bias_corrected_95thpercentile.grd"))
+cmip_bsal_95  <- stack(str_c(cmip_path, "EnsembleData/bot_sal/bot_sal_SODA_bias_corrected_95thpercentile.grd"))
+
+
+# Put them in a list
+cmip_vars_95 <- list(
+  "Bottom Temperature"  = cmip_btemp_95,
+  "Bottom Salinity"   = cmip_bsal_95,
+  "Surface Salinity"  = cmip_ssal_95,
+  "Surface Temperature" = cmip_stemp_95)
+
+# Rotate them:
+cmip_vars_95 <- map(cmip_vars_95, raster::rotate)
+
+
+# Now mask them all and get timeseries
+masked_cmip_95 <- imap(cmip_vars_95, function(masking_var, var_name){
+
+  # Mask and get timeseries
+  masked_gom   <- mask_shape(masking_var, trawl_gom)
+  masked_gom   <- timeseries_from_mask(masked_gom, var_name)
+  masked_trawl <- mask_shape(masking_var, trawl_full)
+  masked_trawl <- timeseries_from_mask(masked_trawl,var_name)
+  masked_dfo   <- mask_shape(masking_var, dfo_area)
+  masked_dfo   <- timeseries_from_mask(masked_dfo, var_name)
+
+  # put in list
+ list(
+    "Gulf of Maine Strata"  = masked_gom,
+    "US Survey Area" = masked_trawl,
+    "Canadian Survey Area" = masked_dfo)
+})
+
+
+```
+
+
+# Validating Seasonality {.tabset .tabset-pills}
+
+The goal of the bias correction methods is to (as the name implies) remove bias from the CMIP6 model runs, through comparison to real-world observations or reanalysis data sets that better reflect real-world data. 
+
+The bias-corrected data should mirror the intra-annual variations seen in the datasets used to bias-correct them, and the values should be close, and without an obvious bias.
+
+The following plots showcase how the observational datasets fall in-line with the bias corrected means, 5th percentile, and 95th percentile data. With emphasis on intra-annual variations.
+
+```{r}
+
+# Rename for consistency with everything else
+masked_vars <- setNames(masked_vars,
+                        c("Bottom Temperature", "Bottom Salinity", "Surface Salinity", "Surface Temperature"))
+
+
+# plotting bias corrections against observed variables
+comparison_plot <- function(var_option, mask_option){
+  
+  # Pull the variable and mask region data from lists
+  obs_data  <- masked_vars[[var_option]][[mask_option]]
+  cmip_mean <- masked_cmip[[var_option]][[mask_option]]
+  cmip_5    <- masked_cmip_5[[var_option]][[mask_option]]
+  cmip_95   <- masked_cmip_95[[var_option]][[mask_option]]
+  
+  # Add data source for color scale
+  cmip_mean$data_source <- "CMIP Mean"
+  cmip_5$data_source    <- "CMIP 5th Perc."
+  cmip_95$data_source   <- "CMIP 95th Perc."
+  
+  
+    # Separate action for labeling oisst/soda
+  #if(var_option == "surf_temp"){
+  if(var_option == "Surface Temperature"){
+    obs_name <- "OISSTv2"
+    obs_data$data_source <- "OISSTv2"
+
+    } else{
+      obs_name <- "SODA"
+      obs_data$data_source <- "SODA"
+    }
+  
+  
+  # Filter Dates to focus on shared time period
+  cmip_mean <- dplyr::filter(cmip_mean, between(date, min(obs_data$date), max(obs_data$date)))
+  cmip_5 <- dplyr::filter(cmip_5, between(date, min(obs_data$date), max(obs_data$date)))
+  cmip_95 <- dplyr::filter(cmip_95, between(date, min(obs_data$date), max(obs_data$date)))
+  
+  
+  # format variable for display on axis
+  var_label <- str_replace(var_option, "_", " ")
+  var_label <- str_to_title(var_label)
+  
+  # the masked observed data has the shorthand column names, ugh
+  var_sym <- switch (var_option,
+    "Bottom Temperature" = sym("bot_temp"),
+    "Surface Temperature" = sym("surf_temp"),
+    "Surface Salinity" = sym("surf_sal"),
+    "Bottom Salinity" = sym("bot_sal")
+  )
+  
+  var_sym_long <- sym(var_option)
+  
+  # Then build the plot
+  ggplot() +
+     geom_line(data = obs_data, aes(date, {{var_sym}}, color = data_source), size = 0.75, alpha = 0.8) +
+     geom_line(data = cmip_mean, aes(date, {{var_sym_long}}, color = data_source), size = 0.75, linetype = 4, alpha = 0.8) +
+     geom_line(data = cmip_5, aes(date, {{var_sym_long}}, color = data_source), size = 0.5, linetype = 3) +
+     geom_line(data = cmip_95, aes(date, {{var_sym_long}}, color = data_source), size = 0.5, linetype = 3) +
+     scale_color_manual(values = setNames(c(
+       "gray50", "gray50", as.character(gmri_cols("orange")), as.character(gmri_cols("gmri blue"))), 
+       c("CMIP 5th Perc.", "CMIP 95th Perc.", "CMIP Mean", obs_name))) +
+     labs(x = "", y = var_label, color = "") +
+     facet_zoom(xlim =c(as.Date("2000-01-01"), as.Date("2001-06-30")), zoom.size = .5) +
+    theme(legend.position = "bottom")
+  
+}
+```
+
+
+## Bottom Temperature {.tabset}
+
+```{r}
+var_option <- "Bottom Temperature"
+
+```
+
+
+### Gulf of Maine Strata
+
+```{r}
+mask_option <- "Gulf of Maine Strata"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+### NMFS Survey Area
+
+```{r}
+mask_option <- "US Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+### DFO Survey Area
+
+```{r}
+mask_option <- "Canadian Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+## Surface Temperature {.tabset}
+
+```{r}
+var_option = "Surface Temperature"
+```
+
+
+### Gulf of Maine Strata
+
+```{r}
+mask_option <- "Gulf of Maine Strata"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+### NMFS Survey Area
+
+```{r}
+mask_option <- "US Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+### DFO Survey Area
+
+```{r}
+mask_option <- "Canadian Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+
+## Bottom Salinity {.tabset}
+
+```{r}
+var_option <- "Bottom Salinity"
+
+```
+
+
+### Gulf of Maine Strata
+
+```{r}
+mask_option <- "Gulf of Maine Strata"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+### NMFS Survey Area
+
+```{r}
+mask_option <- "US Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+### DFO Survey Area
+
+```{r}
+mask_option <- "Canadian Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+## Surface Salinity {.tabset}
+
+```{r}
+var_option <- "Surface Salinity"
+
+```
+
+
+### Gulf of Maine Strata
+
+```{r}
+mask_option <- "Gulf of Maine Strata"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+### NMFS Survey Area
+
+```{r}
+mask_option <- "US Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+### DFO Survey Area
+
+```{r}
+mask_option <- "Canadian Survey Area"
+
+comparison_plot(var_option = var_option, mask_option = mask_option)
+```
+
+
+# Regional Trajectories {.tabset .tabset-pills}
+
+The following plots showcase how the observational datasets fall in-line with the bias corrected means, 5th percentile, and 95th percentile data sets.
+
+```{r}
+
+# Function to Plot Single Variable Trajectories for the Different Regions
+plot_clim_futures <- function(var_option){
+  
+  # Testing
+  # var_option <- "Bottom Temperature"
+  
+  # Subset the variables
+  obs_data  <- masked_vars[[var_option]]
+  cmip_mean <- masked_cmip[[var_option]]
+  cmip_5    <- masked_cmip_5[[var_option]]
+  cmip_95   <- masked_cmip_95[[var_option]]
+  
+  # Label the sources for the CMIP Data, process areas
+  
+  obs_data  <- map_dfr(obs_data, ~ mutate(.x, data_source = "Reference Data"), .id = "area") %>% 
+    setNames(c("area", "date", var_option, "data_source"))
+  cmip_mean <- map_dfr(cmip_mean, ~ mutate(.x, data_source = "CMIP Mean"), .id = "area")  %>% 
+    setNames(c("area", "date", var_option, "data_source"))
+  cmip_5    <- map_dfr(cmip_5, ~ mutate(.x, data_source = "CMIP 5th Perc."), .id = "area") %>% 
+    setNames(c("area", "date", var_option, "data_source"))
+  cmip_95   <- map_dfr(cmip_95, ~ mutate(.x, data_source = "CMIP 95th Perc."), .id = "area") %>% 
+    setNames(c("area", "date", var_option, "data_source"))
+  
+  # combine the different quantiles
+  cmip_all <- bind_rows(list(obs_data, cmip_mean, cmip_5, cmip_95)) %>% 
+    mutate(data_source = factor(data_source, 
+                                levels = c("Reference Data", "CMIP 5th Perc.", 
+                                           "CMIP Mean", "CMIP 95th Perc.")),
+           area = factor(area, levels = c("Canadian Survey Area", "Gulf of Maine Strata", 
+                                          "US Survey Area")),
+           date = as.Date(date),
+           yr = lubridate::year(date),
+           month = lubridate::month(date)) 
+  
+  
+  #group on year and get annual averayges
+  var_sym <- sym(var_option)
+  cmip_all <- cmip_all %>% 
+    group_by(yr, area, data_source) %>% 
+    summarise({{ var_sym }} := mean({{ var_sym }}, na.rm = T),
+              .groups = "keep") %>% 
+    ungroup() %>% 
+    mutate(yr = as.numeric(as.character(yr))) %>% 
+    filter(yr >= 1982)
+  
+
+  # Format y label
+  var_label <- switch(var_option,
+                   "Surface Temperature" = , expression("Surface Temperature"~degree*"C"),
+                   "Bottom Temperature" = expression("Bottom Temperature"~degree*"C"),
+                   "Surface Salinity" = "Surface Salinity (ppt)",
+                   "Bottom Salinity" = "BottomSalinity (ppt)")
+  
+  
+  
+  #pivot the sources wider so we can single them out asier
+  data_wide <- cmip_all %>% 
+    pivot_wider(names_from = data_source, values_from = {{var_option}})
+  
+  
+  # Build plot
+  regional_comparison_plot <-  ggplot(data_wide, aes(x = yr)) +
+      geom_ribbon(aes(ymin = `CMIP 5th Perc.`, 
+                      ymax = `CMIP 95th Perc.`),
+                  fill = "gray80") +
+      geom_line(aes(y = `CMIP Mean`, 
+                    color = "CMIP Mean")) +
+      geom_line(aes(y = `Reference Data`, color = "Reference Data")) +
+      geom_point(aes(y = `Reference Data`, color = "Reference Data"),
+                 size = 0.25) +
+      scale_color_manual(values = c(
+        "Reference Data" = "gray10", 
+        "CMIP Mean"          = "gray50")) +
+      facet_wrap(~area, nrow = 3) +
+      labs(x = "", y = var_label, color = "") +
+      theme(legend.position = "bottom")
+  
+  
+  return(regional_comparison_plot)
+    
+  
+  
+}
+
+```
+
+## Bottom Temperature
+
+```{r}
+plot_clim_futures(var_option = "Bottom Temperature")
+```
+
+
+## Surface Temperature
+
+```{r}
+plot_clim_futures(var_option = "Surface Temperature")
+```
+
+
+## Bottom Salinity
+
+```{r}
+plot_clim_futures(var_option = "Bottom Salinity")
+```
+
+
+
+## Surface Salinity
+
+```{r}
+plot_clim_futures(var_option = "Surface Salinity")
+```

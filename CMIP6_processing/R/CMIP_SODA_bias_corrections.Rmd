@@ -16,10 +16,14 @@ params:
     choices: ["surf_sal", "bot_sal", "bot_temp"]
   climate_start: "1985"
   climate_stop: "2014"
-
+knit: (function(input, ...) {rmarkdown::render(input)})
 ---
 
 ```{r setup, include=FALSE}
+
+# Rendering Output:
+# rmarkdown::render("CMIP6_processing/R/CMIP_SODA_bias_corrections.Rmd", params = list(variable = "surf_sal", climate_start = "1985", climate_stop = "2014"))
+
 
 # Set knitr options
 knitr::opts_chunk$set(echo = TRUE, message = T, warning = F, comment = NA)
@@ -39,7 +43,7 @@ library(knitr)
 
 
 # Load the build code and stratification function
-box_paths  <- research_access_paths(os.use = "unix")
+box_paths  <- research_access_paths()
 res_path   <- box_paths$res
 oisst_path <- box_paths$oisst_mainstays
 cmip_path  <- shared.path("unix", "RES_Data", "CMIP6")
@@ -86,7 +90,7 @@ pick_var <- params$variable
 message(paste0("Loading CMIP6 Data for:  ", pick_var ))
 ```
 
-###  Load Collection
+###  Load Collection of CMIP Models
 
 ```{r}
 # Load all the CMIP Scenarios - cropped to study area
@@ -94,11 +98,11 @@ cmip_data <- import_cmip_collection(cmip_var = pick_var)
 ```
 
 
+### Check Date Format Using Xarray
 
+Sometimes the raster package has an issue with the dates used by the climate models, more specifically how its a non-standard calendar without leap years. 
 
-### Match Dates to Xarray
-
-Sometimes the raster package has an issue with the dates used by the climate models, more specifically how its a non-standard calendar without leap years. Xarray doesn't really have an issue for some reason, so this step matches the file to what the dates should be, to ensure proper date comparisons down the line.
+Xarray doesn't really have an issue for some reason, so this step matches the file to what the dates should be, to ensure proper date comparisons down the line.
 
 ```{r get layer names}
 
@@ -118,7 +122,7 @@ cmip_data <- imap(.x = cmip_data,
 
 ```{r}
 plot(cmip_data[[1]][[1]],
-     main = "Single Month of CMIP6 Data",
+     main = str_c("Single Month of CMIP6 Data - ", pick_var),
      col = temp_pal)
 ```
 
@@ -145,7 +149,7 @@ clamp_high <- switch (pick_var,
   "bot_sal"   = 100 )
 
 
-# boiling water seems like a reasonable limit
+# boiling water seems like a reasonable limit for temperature
 cmip_data <- imap(cmip_data, function(ras_brick, ras_lab){ 
   message(paste0("Screening Values for:  ", ras_lab))
   clamp(ras_brick, 
@@ -158,12 +162,12 @@ cmip_data <- imap(cmip_data, function(ras_brick, ras_lab){
 
 
 
-
-
-
 ### Build Lookup Table of Historic and Projected Climate Runs
 
-The cmip to anomalies function relies on a consistent naming structure of XYYYYMMDD to pull out the correct years and months. If this isn't the case the function as currently written will break.
+The function that converts cmip data to climate anomalies relies on a consistent naming structure for each time step of XYYYYMMDD to pull out the correct years and months. 
+
+
+If this isn't the case the function as currently written will break. To make sure this doesn't happen the dates and some additional metadata were put into a lookup table.
 
 This table is also used to match climatologies to their historic periods.
 
@@ -197,8 +201,9 @@ name_structure <- tdims
 
 
 
+## Build Individual CMIP Climatologies
 
-## Build CMIP Climatologies
+For each of the CMIP6 models there will be a climatology that tracks average the intra-annual variation across the variable of interest. 
 
 Need two things now:
 
@@ -292,7 +297,7 @@ cmip_anoms <- cmip_anoms[good_data]
 
 
 # clean up
-rm(cmip_data)
+# rm(cmip_data)
 ```
 
 
@@ -397,7 +402,7 @@ cmip_anoms_bcorrect <- map(cmip_anoms, function(anom_grid){
 
 
 # clean up
-rm(cmip_anoms)
+# rm(cmip_anoms)
 ```
 
 
@@ -408,6 +413,28 @@ plot(cmip_anoms_bcorrect[[1]][[1]],
      main = "Single Month of Bias Corrected Data", 
      col = temp_pal)
 ```
+
+
+
+###  Exporting Bias-Corrected Data
+
+
+```{r}
+# set folder destination
+bias_correction_folder <- box_path("res", str_c("CMIP6/BiasCorrected/IndividualModels/", pick_var, "/"))
+
+# Save the individual models as their own rasters
+iwalk(cmip_anoms_bcorrect, function(bias_corrected_dat, cmip_id){
+  save_file <- bias_corrected_dat
+  save_name <- str_c(bias_correction_folder, pick_var, "_", cmip_id, ".grd")
+  writeRaster(x = save_file, filename = save_name, overwrite = T)
+})
+```
+
+
+
+
+
 
 
 ## Processing Mean/5th/95th
@@ -441,6 +468,9 @@ projection_key <- names(projection_bias_corr[[1]]) %>% str_sub(1,8)
 ```
 
 
+
+
+
 ### Process Historical Period Climate Quantiles
 
 Now that all the CMIP6 data has been bias corrected using either OISST or SODA, we can take the bias corrected data and build arrays that capture the variability across all models by pulling out values at each time step that represent different measures of the collection. So at each cell for every time step we now take the value from whichever model represents the 5th percentile, the mean, or the 95th percentile.
@@ -452,8 +482,8 @@ Now that all the CMIP6 data has been bias corrected using either OISST or SODA, 
 
 # Use the time-period length (in months) to Get the mean 5th 95th at each step
 historic_mean <- time_period_quantile(time_period = "historic",
-                                    time_period_collection = historic_bias_corr, 
-                                    quantile_product = "mean")
+                                      time_period_collection = historic_bias_corr, 
+                                      quantile_product = "mean")
 
 
 
@@ -470,7 +500,7 @@ historic_95 <- time_period_quantile(time_period = "historic",
 
 
 # clean up
-rm(historic_bias_corr)
+#rm(historic_bias_corr)
 ```
 
 
@@ -509,7 +539,7 @@ projection_95 <- time_period_quantile(time_period = "projection",
 
 
 # clean up
-rm(projection_bias_corr)
+#rm(projection_bias_corr)
 ```
 
 
@@ -537,13 +567,91 @@ full_95th <- stack(stack(historic_95), stack(projection_95))
 
 ```{r}
 # Path to the bias correction folder
-var_path <- paste0(cmip_path, "BiasCorrected/", pick_var)
+var_path <- paste0(cmip_path, "BiasCorrected/EnsembleData/", pick_var, "/", pick_var)
 
 
-# File Names
+# Save Files
 writeRaster(full_5th,  paste0(var_path, "_SODA_bias_corrected_5thpercentile.grd"), overwrite = T)
+
 writeRaster(full_mean, paste0(var_path, "_SODA_bias_corrected_mean.grd"), overwrite = T)
+
 writeRaster(full_95th, paste0(var_path, "_SODA_bias_corrected_95thpercentile.grd"), overwrite = T)
 ```
+
+
+
+### Checking Trajectories
+
+This is more meaningful at the regional scale, but can be done here
+
+```{r}
+# Process means and date formats for a monthly raster stack
+stack_to_df <- function(month_stack){
+  cellStats(month_stack, mean, na.rm = T) %>% 
+    as.data.frame() %>% 
+    rownames_to_column() %>% 
+    setNames(c("date", pick_var)) %>% 
+    mutate(date = str_remove(date, "X"),
+           date = str_replace_all(date, "[.]", "-"),
+           date = as.Date(str_c(date, "-15")))
+}
+
+
+
+```
+
+#### Process Timeseries
+
+```{r}
+
+# 1. All the individual outputs
+# make timeseries of the means of each individual model
+bcorrect_anoms <- map_dfr(.x = cmip_anoms_bcorrect, .f = stack_to_df, .id = "cmip_id")
+
+# 2.  5th percentile
+# make timeseries for 5th, mean, and 95th percentile
+ts_5 <- stack_to_df(full_5th) %>%  
+  mutate(cmip_id = "5th Percentile")
+
+# 3.
+ts_mean <- stack_to_df(full_mean) %>%  
+  mutate(cmip_id = "Ensemble Mean")
+
+
+# 4.
+ts_95 <- stack_to_df(full_95th) %>%  
+  mutate(cmip_id = "95th Percentile")
+```
+
+#### Plot Timeseries
+
+```{r}
+# Tidy up the y label for variable
+var_neat <- switch(pick_var,
+                   "surf_temp" = "Surface Temperature",
+                   "surf_sal" = "Surface Salinity", 
+                   "bot_temp" = "Bottom Temperature",
+                   "bot_sal" = "Bottom Salinity" )
+
+# palette options
+spaghetti_pal <- c(
+  "Individual CMIP6 Output" = "gray",
+  "5th Percentile" = "lightblue",
+  "Ensemble Mean" = as.character(gmri_cols("gmri blue")),
+  "95th Percentile" = "dark red")
+
+
+
+# Plot different scenarios against the quantiles
+ggplot(bcorrect_anoms, aes_string("date", pick_var, group = "cmip_id")) +
+  geom_line(aes(color = "Individual CMIP6 Output"), alpha = 0.5, size = 0.6) +
+  geom_line(data = ts_5, aes(color = cmip_id), alpha = 0.7) +
+  geom_line(data = ts_mean, aes(color = cmip_id), alpha = 0.7) +
+  geom_line(data = ts_95, aes(color = cmip_id), alpha = 0.7) +
+  scale_color_manual(values = spaghetti_pal) +
+  labs(x = "Date", y = var_neat, color = "Ensemble Statistic")
+  
+```
+
 
 `r insert_gmri_footer()`

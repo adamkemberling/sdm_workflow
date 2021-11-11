@@ -3,6 +3,7 @@ title: "A. Allyn ECW Fish Climate Analysis"
 author: "Adam A. Kemberling / Andrew Allyn"
 date: "2/5/2021"
 output: html_document
+knit: (function(input, ...) {rmarkdown::render(input)})
 ---
 
 

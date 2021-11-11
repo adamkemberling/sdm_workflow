@@ -2,4 +2,13 @@ book_filename: "sdm_workflow"
 language:
   ui:
     chapter_name: "Chapter "
+rmd_files: 
+  - "index.Rmd"
+  - "docs/01-intro.Rmd"
+  - "docs/02-CMIP-about.Rmd"
+  - "docs/03-OISST-about.Rmd"
+  - "docs/04-SODA-about.Rmd"
+  - "docs/05-Climatologies.Rmd"
+  - "docs/06-bias-corrections.Rmd"
 output_dir: "docs"
+rmd_subdir: FALSE

@@ -8,4 +8,4 @@
 
 [3. Bias-Corrected Time lines with Reference Data](https://gulfofmaine.github.io/sdm_workflow/CMIP6_processing/R/Bias_Correction_Validation.html)
 
-[4. Bias-Corrected Time Lines of Study Regions](https://gulfofmaine.github.io/sdm_workflow/CMIP6_processing/R/Bias_Correction_Spaghetti.html)
+[4. Bias-Corrected Time Lines of Study Regions](https://gulfofmaine.github.io/sdm_workflow/CMIP6_processing/R/SSP5_85_Bias_Corrected_Trajectories.html)
