@@ -818,7 +818,8 @@ ggplot() +
 
 Rescaled Enhanced Biological Data and Projected Physical Data – Before we fit the model, we center and scale each variable. 
 
-This dataset is at “Box/Mills Lab/Projects/COCA19_Projections/data/combined/all_tows_all_covs_rescale.rds.” 
+This dataset is at 
+> Box/Mills Lab/Projects/COCA19_Projections/data/combined/all_tows_all_covs_rescale.rds.” 
 
 ```{r}
 all_tows_rescaled <- read_rds(str_c(cs_path("mills"), "Projects/COCA19_Projections/data/combined/all_tows_all_covs_rescale.rds" ))
@@ -843,7 +844,10 @@ bio_regions_annual_scaled <- bio_regions_scaled %>%
 
 We keep the mean/SD info for each variable and then also go through a process to rescale the projected values from the CMIP6 experiments using these mean and SD values before making the projections. 
 
-These “prediction” datasets are located in “Box/Mills Lab/Projects/COCA19_Projections/data/predict” and are named: 
+These “prediction” datasets are located in 
+> Box/Mills Lab/Projects/COCA19_Projections/data/predict” 
+ 
+They are named: 
  1. CMIP6_SSP5_85_mean_dat.csv 
  2. CMIP6_SSP5_85_95thpercentile_dat.csv 
  3. CMIP6_SSP5_85_5thpercentile_dat.csv 
@@ -920,15 +924,9 @@ ggplot() +
     data = filter(ssps_annual_scaled, variable == plot_var),
     aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
     color = "white", alpha = 0.6) +
-  # geom_line(
-  #   data = filter(ssps_annual_scaled, variable == plot_var),
-  #   aes(year, ensemble_mean, color = scenario),
-  #   linewidth = 0.7, key_glyph = "timeseries") +
-  # Bio Covariates
   geom_point(data = bio_regions_annual_scaled, aes(year, surf_temp), color = "black") +
   scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
   scale_fill_gmri() +
-  #scale_color_manual(values = "black") +
   scale_color_gmri() +
   scale_x_continuous(expand = expansion(add = c(3,0))) +
   facet_wrap(~Region, ncol = 1, scales = "free") +
@@ -952,15 +950,10 @@ ggplot() +
     data = filter(ssps_annual_scaled, variable == plot_var),
     aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
     color = "white", alpha = 0.6) +
-  # geom_line(
-  #   data = filter(ssps_annual_scaled, variable == plot_var),
-  #   aes(year, ensemble_mean, color = scenario),
-  #   linewidth = 0.7, key_glyph = "timeseries") +
-  # Bio Covariates
-  geom_point(data = bio_regions_annual_scaled, aes(year, surf_temp), color = "black") +
+  geom_point(data = bio_regions_annual_scaled, 
+             aes(year, bot_temp), color = "black") +
   scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
   scale_fill_gmri() +
-  #scale_color_manual(values = "black") +
   scale_color_gmri() +
   scale_x_continuous(expand = expansion(add = c(3,0))) +
   facet_wrap(~Region, ncol = 1, scales = "free") +
@@ -974,6 +967,94 @@ ggplot() +
 
 
 :::
+
+
+# How do the Scaled Seasonal Values look?
+
+```{r}
+# Get the seasonal averages
+bio_regions_seasonal_scaled <- bio_regions_scaled %>% 
+  group_by(year = EST_YEAR, Region, Season = SEASON) %>% 
+  summarise(
+    bot_temp = mean(BT_seasonal, na.rm = T),
+    surf_temp = mean(SST_seasonal, na.rm = T),
+    surf_sal = mean(SS_seasonal, na.rm = T),
+    bot_sal = mean(BS_seasonal, na.rm = T),
+    .groups = "drop"
+  ) %>% drop_na()
+
+ssps_seasonal_scaled <- bind_rows(ssp1_pred_lims, ssp5_pred_lims) %>% 
+  group_by(year = Year_Cov, Season, Region, scenario, variable) %>% 
+  summarise(
+    ensemble_mean = mean(Mean, na.rm = T),
+    "5th Percentile" = mean(`5th Percentile`, na.rm =  T),
+    "95th Percentile" = mean(`95th Percentile`, na.rm = T),
+    .groups = "drop") %>% 
+  filter(variable != "Depth") %>% 
+  mutate(
+    variable = case_when(
+      variable == "SST_seasonal" ~ "Surface Temperature",
+      variable == "BT_seasonal" ~ "Bottom Temperature"
+    ))
+```
+
+
+::: {.panel-tabset}
+
+## Surface Temperature
+
+
+```{r}
+# Plot again with a seasonal facet
+# Plot as years with other data
+plot_var <- "Surface Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_seasonal_scaled, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_point(data = bio_regions_seasonal_scaled, 
+             aes(year, surf_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_grid(Region~Season, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", 
+       color = "Observational Data", 
+       x = "", 
+       y = str_c(plot_var, " - z-scaled"))
+```
+
+## Bottom Temperature
+
+
+```{r}
+# Plot again with a seasonal facet
+# Plot as years with other data
+plot_var <- "Bottom Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_seasonal_scaled, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_point(data = bio_regions_seasonal_scaled, 
+             aes(year, bot_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_gmri() +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_grid(Region~Season, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", 
+       color = "Observational Data", 
+       x = "", 
+       y = str_c(plot_var, " - z-scaled"))
+```
+:::
+
+
 
 
 
@@ -1074,6 +1155,9 @@ baseline_difference_table(var_option = "Bottom Salinity", palette = "rcartocolor
 ```
 
 :::
+
+
+
 
 
 # Seasonal Comparisons
