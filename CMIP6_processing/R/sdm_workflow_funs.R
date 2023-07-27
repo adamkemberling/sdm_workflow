@@ -16,28 +16,31 @@ months_numeric <- str_pad(seq(from = 1, to = 12, by = 1), width = 2, side = "lef
 
 
 # date keys for the different cmip runs
+res_path <- cs_path(box_group = "res")
 cmip_date_key <- list(
   "surf_temp" = list(
-    "historic_runs"        = read_csv('~/Box/RES_Data/CMIP6/DateKeys/surf_temp/surf_temp_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv('~/Box/RES_Data/CMIP6/DateKeys/surf_temp/surf_temp_future_projections.csv', col_types = cols()),
-    "extended_projections" = read_csv('~/Box/RES_Data/CMIP6/DateKeys/surf_temp/surf_temp_over_run.csv', col_types = cols())),
+    "historic_runs"        = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/surf_temp/surf_temp_historic_runs.csv'), col_types = cols())#,
+    #"future_projections"   = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/surf_temp/surf_temp_future_projections.csv'), col_types = cols()),
+    #"extended_projections" = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/surf_temp/surf_temp_over_run.csv'), col_types = cols())
+    ),
   "surf_sal" = list(
-    "historic_runs"        = read_csv('~/Box/RES_Data/CMIP6/DateKeys/surf_sal/surf_sal_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv('~/Box/RES_Data/CMIP6/DateKeys/surf_sal/surf_sal_future_projections.csv', col_types = cols()),
-    "extended_projections" = read_csv('~/Box/RES_Data/CMIP6/DateKeys/surf_sal/surf_sal_over_run.csv', col_types = cols())),
+    "historic_runs"        = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/surf_sal/surf_sal_historic_runs.csv'), col_types = cols())#,
+    #"future_projections"   = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/surf_sal/surf_sal_future_projections.csv'), col_types = cols()),
+    #"extended_projections" = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/surf_sal/surf_sal_over_run.csv'), col_types = cols())
+    ),
   "bot_temp" = list(
-    "historic_runs"        = read_csv('~/Box/RES_Data/CMIP6/DateKeys/bot_temp/bot_temp_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv('~/Box/RES_Data/CMIP6/DateKeys/bot_temp/bot_temp_future_projections.csv', col_types = cols()),
-    "extended_projections" = read_csv('~/Box/RES_Data/CMIP6/DateKeys/bot_temp/bot_temp_over_run.csv', col_types = cols())),
+    "historic_runs"        = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/bot_temp/bot_temp_historic_runs.csv'), col_types = cols())#,
+    #"future_projections"   = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/bot_temp/bot_temp_future_projections.csv'), col_types = cols()),
+    #"extended_projections" = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/bot_temp/bot_temp_over_run.csv'), col_types = cols())
+    ),
   "bot_sal" = list(
-    "historic_runs"        = read_csv('~/Box/RES_Data/CMIP6/DateKeys/bot_sal/bot_sal_historic_runs.csv', col_types = cols()),
-    "future_projections"   = read_csv('~/Box/RES_Data/CMIP6/DateKeys/bot_sal/bot_sal_future_projections.csv', col_types = cols()),
-    "extended_projections" = read_csv('~/Box/RES_Data/CMIP6/DateKeys/bot_sal/bot_sal_over_run.csv', col_types = cols())
+    "historic_runs"        = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/bot_sal/bot_sal_historic_runs.csv'), col_types = cols())#,
+    #"future_projections"   = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/bot_sal/bot_sal_future_projections.csv'), col_types = cols()),
+    #"extended_projections" = read_csv(str_c(res_path, 'CMIP6/DateKeys_historical/bot_sal/bot_sal_over_run.csv'), col_types = cols()
+    )
   )
   
   
-  
-  )
 
 
 ####  OISST Processing  ####

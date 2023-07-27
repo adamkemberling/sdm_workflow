@@ -161,7 +161,7 @@ def drop_extremes(xr_ds, soda_var, clamp_low, clamp_high):
 
 
 
-# test it
+# Test it
 soda_filtered = drop_extremes(xr_ds = soda_full, soda_var = "bot_temp", clamp_low = -50, clamp_high = 100)
 soda_filtered = drop_extremes(xr_ds = soda_filtered, soda_var = "bot_sal", clamp_low = -50, clamp_high = 100)
 soda_filtered = drop_extremes(xr_ds = soda_filtered, soda_var = "surf_temp", clamp_low = -50, clamp_high = 100)

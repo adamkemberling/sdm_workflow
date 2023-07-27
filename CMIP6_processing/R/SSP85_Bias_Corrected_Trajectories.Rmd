@@ -14,6 +14,7 @@ knit: (function(input, ...) {rmarkdown::render(input)})
 ---
 
 ```{r setup, include=FALSE}
+
 # Set knitr options
 knitr::opts_chunk$set(echo = TRUE, message = F, warning = F, comment = NA)
 options(knitr.kable.NA = '')
@@ -36,11 +37,14 @@ library(ggforce)
 
 
 # Load the build code and stratification function
-box_paths  <- research_access_paths()
-res_path   <- box_paths$res
-oisst_path <- box_paths$oisst_mainstays
-cmip_path  <- box_path("RES_Data", "CMIP6/SSP5_85/BiasCorrected")
-soda_path  <- box_path("RES_Data", "SODA")
+box_paths  <- research_access_paths(box_location = "cloudstorage")
+res_path   <- cs_paths$res
+oisst_path <- cs_paths$oisst_mainstays
+cmip_path  <- cs_path("RES_Data", "CMIP6/SSP5_85/BiasCorrected")
+soda_path  <- cs_path("RES_Data", "SODA")
+
+
+
 
 # Set theme  
 theme_set(theme_bw() +
@@ -50,7 +54,7 @@ theme_set(theme_bw() +
                   strip.background = element_rect(
                     color = "white", 
                     fill = "#36454F", 
-                    size = 0.75, 
+                    linewidth = 0.75, 
                     linetype="solid"), 
             legend.background = element_rect(fill = "transparent", 
                                              color = "black")))
@@ -65,7 +69,7 @@ canada      <- ne_states("canada", returnclass = "sf")
 greenland   <- ne_states(country = "greenland", returnclass = "sf")
 
 ####  Functions  ####
-source(here("CMIP6_processing/R/sdm_workflow_funs.R"))
+source(here::here("CMIP6_processing/R/sdm_workflow_funs.R"))
 ```
 
 
@@ -95,7 +99,7 @@ For clarity on what data is included/attributed to each region, the areas we foc
 # returns path to oisst timeseries & path to shapefile:
 region_groups <- c("nelme_regions", "gmri_sst_focal_areas", "lme", "nmfs_trawl_regions")
 region_lookup <- map(region_groups, function(region_group){
-    mask_details <- get_timeseries_paths(region_group) }) %>% 
+    mask_details <- get_timeseries_paths(region_group, box_location = "cloudstorage") }) %>% 
   setNames(region_groups)
 
 # Grab a couple to use from each as contenders
@@ -123,7 +127,7 @@ trawl_full <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.s
 
 
 # DFO Data
-dfo_path <- shared.path(group = "Mills Lab", folder = "Projects/DFO_survey_data/strata_shapefiles")
+dfo_path <- cs_path(box_group =  "Mills Lab", subfolder = "Projects/DFO_survey_data/strata_shapefiles")
 dfo_area <- read_sf(str_c(dfo_path, "MaritimesRegionEcosystemAssessmentBoundary.shp"))
 
 

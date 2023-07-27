@@ -36,7 +36,7 @@ library(knitr)
 
 
 # Load the build code and stratification function
-box_paths  <- research_access_paths(os.use = "unix")
+box_paths  <- research_access_paths(box_location = "cloudstorage")
 res_path   <- box_paths$res
 oisst_path <- box_paths$oisst_mainstays
 cmip_path  <- shared.path("unix", "RES_Data", "CMIP6")
@@ -68,9 +68,9 @@ The only variable we will use OISSTv2 data to bias correct for is sea surface te
 ####  Choose a variable
 pick_var <- "surf_temp"
 
-
 # Load all the CMIP Scenarios - cropped to study area
 cmip_data <- import_cmip_collection(cmip_var = pick_var)
+
 ```
 
 
@@ -82,12 +82,14 @@ Sometimes the raster package has an issue with the dates used by the climate mod
 
 # Get the cftime dates from the date key - this ensures proper date matching
 # the fallback is to assign year and month generally based on if its an historic run or not
-cmip_data <- imap(.x = cmip_data, 
-                  .f = function(cmip_dataset, cmip_source){
+cmip_data <- imap(
+  .x = cmip_data, 
+  .f = function(cmip_dataset, cmip_source){
   message(paste("Setting Names for: ", cmip_source))
-  names(cmip_dataset) <- get_cmip_dates(cmip_source = cmip_source, 
-                                        cmip_var = pick_var,
-                                        time_dim = dim(cmip_dataset)[3])
+  names(cmip_dataset) <- get_cmip_dates(
+    cmip_source = cmip_source, 
+    cmip_var = pick_var,
+    time_dim = dim(cmip_dataset)[3])
   return(cmip_dataset)})
 
 ```

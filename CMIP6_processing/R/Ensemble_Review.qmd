@@ -1,0 +1,1126 @@
+---
+title: "SSP Ensemble Review"
+author: "Adam Kemberling"
+url: "https://github.com/adamkemberling"
+affiliation: "Gulf of Maine Research Institute"
+affiliation_url: "https://www.gmri.org"
+description: | 
+  Seasonal Patterns in Sea Surface Temperatures
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+execute: 
+  echo: false
+  warning: false
+  message: false
+  comment: ""
+  fig-align: center
+  fig-height: 8
+---
+
+```{r}
+#| label: packages
+#| include: false
+#| echo: false
+#| warning: false
+
+####  Packages  ####
+library(lubridate)
+library(raster)
+library(here)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(stars)
+library(gmRi)
+library(gt)
+library(gtExtras)
+library(patchwork)
+library(tidyverse)
+library(ggforce)
+
+
+# Box paths
+res_path <- cs_path("res")
+oisst_path <- cs_path("res", "OISST/oisst_mainstays")
+cmip_path  <- cs_path("RES_Data", "CMIP6")
+soda_path  <- cs_path("RES_Data", "SODA")
+
+####  Functions  ####
+# source(here::here("CMIP6_processing/R/sdm_workflow_funs.R"))
+
+
+# Polygons for mapping
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+world_sf    <- ne_countries(returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+```
+
+
+
+
+
+# Reviewing the Bias-Corrected Ensemble Datatsets from CMIP6
+
+This report exists to visually review the bias-corrected CMIP6 data ensembles. Ensembles are from two Shared Socio-economic Pathways (SSPs):
+ 1. SSP 1 (Sustainability) 2.6   
+ 2. SSP 5 (Fossil Fueled Development) 8.5
+
+This document will look into three things.
+ 1. How do these two pathways compare for our study areas
+ 2. How do they compare against real-life observations
+ 3. Are there regional biases or errors
+ 
+Additionally, I also plan to flag points in time when each SSP ensemble passes temperature thresholds for the different areas. Bias corrected timelines for the sea surface temperature, sea surface salinity, bottom temperature, and bottom salinity will be compared against the reference observations (OISSTv2, SODA) to check how accurately they represent observed conditions, and whether that changes between our areas of interest. 
+
+
+
+###  Focus Areas
+
+For clarity on what data is included/attributed to each region, the areas we focused on have been plotted below.
+
+
+```{r}
+# NMFS Survey Area
+# 1. Gulf of Maine
+trawl_regions <- get_timeseries_paths("nmfs_trawl_regions", box_location = "cloudstorage")
+trawl_gom <- read_sf(trawl_regions$gulf_of_maine$shape_path)
+
+# 2. The Full survey area we use
+# Load all the strata and just filter out the crap ones
+trawl_full <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.shp"))  %>% 
+  janitor::clean_names() %>% 
+  filter(strata >= 01010 ,
+         strata <= 01760,
+         strata != 1310,
+         strata != 1320,
+         strata != 1330,
+         strata != 1350,
+         strata != 1410,
+         strata != 1420,
+         strata != 1490) 
+
+
+
+
+# EPUs
+ecodata_epu <- ecodata::epu_sf
+
+
+# DFO Survey Area
+dfo_path <- cs_path(box_group =  "Mills Lab", subfolder = "Projects/DFO_survey_data/strata_shapefiles")
+dfo_area <- read_sf(str_c(dfo_path, "MaritimesRegionEcosystemAssessmentBoundary.shp"))
+
+
+# set overall zoom for maps
+xlimz <- c(-76, -57)
+ylimz <- c(35, 48)
+
+# base map
+
+# base map
+base_map <- ggplot() +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(title.position = "top", title.hjust = 0.5)) +
+  labs(color = "", 
+       fill = "") +
+  theme_bw() +
+  map_theme()
+
+```
+
+
+::: {.panel-tabset}
+  
+#### NMFS Trawl Areas
+
+```{r}
+#| fig-height: 5
+# Build off of base map
+
+base_map +
+  geom_sf(data = trawl_full, aes(fill = "Trawl Survey"), alpha = 0.5) +
+  geom_sf(data = trawl_gom, aes(fill = "Gulf of Maine"), alpha = 0.5) +
+  scale_fill_gmri() +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(title = "Ecological Production Units", fill = "")
+
+
+```
+
+
+####  DFO Survey Areas
+
+```{r}
+#| fig-height: 5
+# Map dfo data 
+base_map + 
+  geom_sf(data = dfo_area, fill = gmri_cols("orange"), alpha = 0.5) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(title = "Canadian Survey Area", fill = "")
+
+```
+
+####  Ecological Production Units
+
+```{r}
+#| fig-height: 5
+# Build off of base map
+
+base_map +
+  geom_sf(data = ecodata_epu, aes(fill = EPU), alpha = 0.5) +
+  scale_fill_gmri() +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(title = "Ecological Production Units", fill = "")
+
+
+```
+
+  
+:::
+
+
+# Load the Data
+
+## Bias-Corrected SSP Ensemble Data 
+
+Both the bias-corrections and the observational datasets (OISSTv2, SODA) have been prepared separately and are loaded below.
+
+
+### CMIP6 Bias-Corrected Arrays {.tabset}
+
+```{r}
+####  Load Bias Corrected Models Datasets
+
+# Monthly averages have been prepared in: 
+# helper01_regional_timeseries_construction.R
+
+
+# the variables
+var_list <- c(
+  "Surface Temperature" = "surf_temp", 
+  "Bottom Temperature"  = "bot_temp", 
+  "Surface Salinity"    = "surf_sal", 
+  "Bottom Salinity"     = "bot_sal")
+
+
+# Folders to the timeseries
+ssp1_folder <- cs_path("res", str_c("CMIP6/SSP1_26/BiasCorrected/TimeseriesData/"))
+ssp5_folder <- cs_path("res", str_c("CMIP6/SSP5_85/BiasCorrected/TimeseriesData/"))
+
+
+
+# Load the timeseries
+
+# SSP1
+ssp1_ts <- imap(var_list, function(x, y){
+  
+  # For name replacement
+  var_sym <- sym(x)
+  
+  # Full file Name
+  table_name <- str_c(ssp1_folder, "CMIP6_bias_corrected_regional_", x, ".csv")
+  read_csv(table_name, col_types = cols()) %>% 
+    mutate(variable = y) %>% 
+    rename(bias_corrected_value = {{var_sym}})
+})
+
+
+# Again for SSP5
+ssp5_ts <- imap(var_list, function(x, y){
+  
+  # For name replacement
+  var_sym <- sym(x)
+  
+  # Full file Name
+  table_name <- str_c(ssp5_folder, "CMIP6_bias_corrected_regional_", x, ".csv")
+  read_csv(table_name, col_types = cols()) %>% 
+    mutate(variable = y) %>% 
+    rename(bias_corrected_value = {{var_sym}})
+})
+
+
+```
+
+
+
+```{r}
+# Make monthly Averages
+
+
+# make the individual timelines annual/monthly timelines
+ssp1_monthly <- map(ssp1_ts, function(x){
+  x %>% 
+    mutate(month = month(date)) %>% 
+    group_by(cmip_id, data_source, ensemble_statistic, Region, variable, year, month) %>% 
+    summarise(bias_corrected_value = mean(bias_corrected_value, na.rm = T),
+              .groups = "drop")
+  
+  
+})
+
+
+
+# make the individual timelines annual/monthly timelines
+ssp5_monthly <- map(ssp5_ts, function(x){
+  x %>% 
+    mutate(month = month(date)) %>% 
+    group_by(cmip_id, data_source, ensemble_statistic, Region, variable, year, month) %>% 
+    summarise(bias_corrected_value = mean(bias_corrected_value, na.rm = T),
+              .groups = "drop")
+  
+  
+})
+```
+
+
+```{r}
+####  Trim to just ensemble data  ####
+
+
+# We can just combine the different variables and drop the individual runs here
+ssp1_26 <- ssp1_monthly %>% 
+  bind_rows() %>% 
+  filter(!str_detect(ensemble_statistic, "Individual")) %>% 
+  select(-cmip_id) %>% 
+  mutate(scenario = "SSP1: 2.6",
+         date = as.Date(str_c(year,"-", month, "-15"))) %>% 
+  pivot_wider(names_from = "ensemble_statistic", values_from = "bias_corrected_value")
+
+ssp5_85 <- ssp5_monthly %>% 
+  bind_rows() %>% 
+  filter(!str_detect(ensemble_statistic, "Individual")) %>% 
+  select(-cmip_id) %>% 
+  mutate(scenario = "SSP5: 8.5",
+         date = as.Date(str_c(year,"-", month, "-15"))) %>% 
+  pivot_wider(names_from = "ensemble_statistic", values_from = "bias_corrected_value")
+
+
+# Combnine Both and filter a little more for remaining plots
+ssp_both <- bind_rows(ssp1_26, ssp5_85) %>% 
+  filter(str_detect(Region, "EPU|Canadian"))  %>% 
+  mutate(Region = factor(
+    Region, 
+    levels = c("Canadian Survey Area", "EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB")))
+```
+
+# Bias Corrected Ensembles - Reference Period (2000-2019)
+
+The following figures chart out how each variable changes in time across the different models within an area. This data has been locally bias-corrected using observational datasets (OISSTv2) and reanalysis models (SODA).
+
+
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+```{r}
+ssp_both %>% 
+  filter(variable == "Surface Temperature") %>% 
+  #filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date)) +
+  geom_line(aes(y = `Ensemble Mean`, color = scenario), key_glyph = "timeseries", linewidth = 0.7, alpha = 0.5) +
+  scale_color_gmri() +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_x_date() +
+  theme_gmri() +
+  labs(y = "Surface Temperature", color = "Ensemble Scenario")
+```
+
+### Bottom Temperature
+
+```{r}
+ssp_both %>% 
+  filter(variable == "Bottom Temperature") %>% 
+  #filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date)) +
+  geom_line(aes(y = `Ensemble Mean`, color = scenario), key_glyph = "timeseries", linewidth = 0.7, alpha = 0.5) +
+  scale_color_gmri() +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  scale_x_date() +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  theme_gmri() +
+  labs(y = "Bottom Temperature", color = "Ensemble Scenario")
+```
+
+### Surface Salinity
+
+```{r}
+ssp_both %>% 
+  filter(variable == "Surface Salinity") %>% 
+  #filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date)) +
+  geom_line(aes(y = `Ensemble Mean`, color = scenario), key_glyph = "timeseries", linewidth = 0.7, alpha = 0.5) +
+  scale_color_gmri() +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  scale_x_date() +
+  theme_gmri() +
+  labs(y = "Surface Salinity", color = "Ensemble Scenario")
+```
+
+### Bottom Salinity
+  
+```{r}
+ssp_both %>% 
+  filter(variable == "Bottom Salinity") %>% 
+  #filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date)) +
+  geom_line(aes(y = `Ensemble Mean`, color = scenario), key_glyph = "timeseries", linewidth = 0.7, alpha = 0.5) +
+  scale_color_gmri() +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  scale_x_date() +
+  theme_gmri() +
+  labs(y = "Bottom Salinity", color = "Ensemble Scenario")
+```
+  
+:::
+
+
+
+# Historic Observation Datasets
+
+There are two data sources with which the CMIP6 model outputs are checked against to provide bias-corrections. These are the OISSTv2 and SODA reanalysis datasets. Monthly-averaged timeseries for each region can be viewed below.
+
+
+```{r}
+
+# Monthly averages have been prepared in: 
+# helper01_regional_timeseries_construction.R
+
+references_combined <- read_csv(
+  file = str_c(res_path, "CMIP6/Bias_Correction_Checking/bias_correction_reference_dataset_monthly_regional_means.csv"),
+  col_types = cols(
+  Region = col_character(),
+  date = col_date(format = ""),
+  surf_sal = col_double(),
+  year = col_double(),
+  month = col_character(),
+  surf_temp = col_double(),
+  bot_sal = col_double(),
+  bot_temp = col_double()
+))
+
+
+# Trim to certain areas
+references_combined <- references_combined %>% 
+  filter(str_detect(Region, "EPU|Canadian")) %>% 
+  mutate(Region = factor(
+    Region, 
+    levels = c("Canadian Survey Area", "EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB")),)
+```
+
+
+::: {.panel-tabset}
+  
+### Surface Temperature
+
+```{r}
+references_combined %>% 
+  filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date, surf_temp)) +
+    geom_line(aes(color = "Optimum Interpolation SST"), key_glyph = "timeseries", linewidth = 0.7, alpha = 0.7) +
+    scale_color_gmri() +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+    facet_wrap(~Region, ncol = 1, scales = "free") +
+    scale_x_date(expand = expansion(add = c(0,0))) +
+    labs(x = "", y = "Surface Temperature", color = "Data Source") +
+    theme_gmri() 
+  
+```
+
+
+### Bottom Temperature
+
+
+```{r}
+references_combined %>% 
+  filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date, bot_temp)) +
+    geom_line(aes(color = "SODA Reanalysis Model"), linewidth = 0.7, alpha = 0.7) +
+    scale_color_gmri() +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+    facet_wrap(~Region, ncol = 1, scales = "free") +
+    scale_x_date(expand = expansion(add = c(0,0))) +
+    labs(x = "", y = "Bottom Salinity", color = "Data Source") +
+    theme_gmri() 
+  
+```
+ 
+### Surface Salinity
+
+```{r}
+references_combined %>% 
+  filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date, surf_sal)) +
+    geom_line(aes(color = "SODA Reanalysis Model"), linewidth = 0.7, alpha = 0.7) +
+    scale_color_gmri() +
+    facet_wrap(~Region, ncol = 1, scales = "free") +
+    scale_x_date(expand = expansion(add = c(0,0))) +
+    labs(x = "", y = "Surface Salinity", color = "Data Source") +
+    theme_gmri() 
+  
+```
+
+### Bottom Salinity
+
+
+```{r}
+references_combined %>% 
+  filter(year %in% c(2000:2019)) %>% 
+  ggplot(aes(date, bot_sal)) +
+    geom_line(aes(color = "SODA Reanalysis Model"), linewidth = 0.7, alpha = 0.7) +
+    scale_color_gmri() +
+    facet_wrap(~Region, ncol = 1, scales = "free") +
+    scale_x_date(expand = expansion(add = c(0,0))) +
+    labs(x = "", y = "Bottom Salinity", color = "Data Source") +
+    theme_gmri() 
+```
+
+
+:::
+
+
+
+# Comparing Scenarios to Observations
+
+
+
+```{r}
+# Make them annual
+ssps_annual <- ssp_both %>% 
+  group_by(scenario, Region, year, variable) %>% 
+  summarise(
+    `5th Percentile` = mean(`5th Percentile`, na.rm = T),
+    `95th Percentile` = mean(`95th Percentile`, na.rm = T),
+    `Ensemble Mean` = mean(`Ensemble Mean`, na.rm = T),
+    .groups = "drop") %>% 
+  filter(year >= 1980)
+
+
+# Do it for reference datasets
+reference_annual <- references_combined %>% 
+  pivot_longer(cols = c(surf_temp, bot_temp, bot_sal, surf_sal), names_to = "variable", values_to = "mu")  %>% 
+  mutate(
+    reference_dataset = if_else(variable == "surf_temp", "OISSTv2", "SODA Reanalysis"),
+    variable = case_when(
+      variable == "surf_temp" ~ "Surface Temperature",
+      variable == "bot_temp" ~ "Bottom Temperature",
+      variable == "surf_sal" ~ "Surface Salinity",
+      variable == "bot_sal" ~ "Bottom Salinity")) %>% 
+  group_by(year = year(date), Region, variable, reference_dataset) %>% 
+    summarise(mean_val = mean(mu, na.rm = T),
+              .groups = "drop")
+```
+
+
+::: {.panel-tabset}
+  
+### Surface Temperature
+
+```{r}
+plot_var <- "Surface Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_manual(values = "black") +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+```
+
+
+### Bottom Temperature
+
+```{r}
+plot_var <- "Bottom Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_manual(values = "black") +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+```
+
+### Surface Salinity
+
+```{r}
+plot_var <- "Surface Salinity"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  scale_fill_gmri() +
+  scale_color_manual(values = "black") +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+```
+
+### Bottom Salinity
+
+```{r}
+plot_var <- "Bottom Salinity"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  scale_fill_gmri() +
+  scale_color_manual(values = "black") +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+```
+:::
+
+
+
+# Enhanced Biological Data
+
+To fit the VAST model a suite of covariates matching the biological observations are uploaded. These values should fall within the ranges of the observed Temp/Salinity values and SSP ranges. If they don't 
+
+```{r}
+# Read the data in
+# These are the survey data and the extracted covariates (OISST & SODA)
+bio_cov <- read_rds(str_c(cs_path("mills"), "Projects/COCA19_Projections/data/combined/all_tows_all_covs.rds"))
+```
+
+
+```{r}
+sf::sf_use_s2(use_s2 = F)
+
+
+#overlay function to match coordinates to region labels
+add_region_labels <-  function(x, coords = c("DECDEG_BEGLON", "DECDEG_BEGLAT")){
+  
+  
+  # Overlay onto regions
+  # Use EPUS as an example
+  regions_epu <- x %>% 
+    st_as_sf(coords = coords, crs = 4326, remove = F) %>% 
+    st_transform(st_crs(ecodata_epu)) %>% 
+    st_join(ecodata_epu, join = st_intersects) %>% 
+    drop_na(EPU) %>% 
+    st_drop_geometry() %>% 
+    rename(Region = EPU) %>% 
+    mutate(Region = str_c("EPU_", Region)) %>% 
+    select(-c(Shape_Leng, Shape_Area))
+  
+  
+  # # Cool, were good
+  # bio_epu %>% ggplot(aes(DECDEG_BEGLON, DECDEG_BEGLAT)) + geom_point(aes(color = Region))
+  
+  # Do the Canadian overlay too
+  regions_dfo <- x %>% 
+    st_as_sf(coords = coords, crs = 4326, remove = F) %>% 
+    st_transform(st_crs(dfo_area)) %>% 
+    st_join(dfo_area, join = st_intersects) %>% 
+    drop_na(FID) %>% 
+    st_drop_geometry() %>% 
+    rename(Region = FID) %>% 
+    mutate(Region = "Canadian Survey Area")
+  
+  # # All set with DFO
+  # bio_dfo %>% ggplot(aes(DECDEG_BEGLON, DECDEG_BEGLAT)) + geom_point(aes(color = Region))
+  
+  
+  # Combine them
+  all_regions <- bind_rows(regions_epu, regions_dfo) %>% 
+    mutate(Region = factor(Region, levels = c("Canadian Survey Area", "EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB")))
+
+  return(all_regions)
+  
+}
+```
+
+
+```{r}
+# Overlay onto regions
+
+
+# add the regions to the biological covariates
+bio_regions <- add_region_labels(bio_cov)
+
+
+# Get the annual averages
+bio_regions_annual <- bio_regions %>% 
+  group_by(year = EST_YEAR, Region) %>% 
+  summarise(
+    bot_temp = mean(BT_seasonal),
+    surf_temp = mean(SST_seasonal),
+    surf_sal = mean(SS_seasonal),
+    bot_sal = mean(BS_seasonal),
+    .groups = "drop"
+  ) %>% drop_na()
+```
+
+
+
+In the following figures the points are the annual average of the point-extracted seasonal covariates.
+
+::: {.panel-tabset}
+
+## Surface Temperature
+
+
+
+```{r}
+# Plot as years with other data
+plot_var <- "Surface Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  # Bio Covariates
+  #geom_jitter(data = bio_regions, aes(EST_YEAR, BT_seasonal), width = 0.2, color = "gray", alpha = 0.1) +
+  geom_point(data = bio_regions_annual, aes(year, surf_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_manual(values = "black") +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+  
+```
+
+
+
+## Bottom Temperature
+
+
+```{r}
+# Plot as years with other data
+plot_var <- "Bottom Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  # Bio Covariates
+  #geom_jitter(data = bio_regions, aes(EST_YEAR, BT_seasonal), width = 0.2, color = "gray", alpha = 0.1) +
+  geom_point(data = bio_regions_annual, aes(year, bot_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_manual(values = "black") +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+  
+```
+
+## Surface Salinity
+
+
+```{r}
+# Plot as years with other data
+plot_var <- "Surface Salinity"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  # Bio Covariates
+  #geom_jitter(data = bio_regions, aes(EST_YEAR, BT_seasonal), width = 0.2, color = "gray", alpha = 0.1) +
+  geom_point(data = bio_regions_annual, aes(year, surf_sal), color = "black") +
+  scale_fill_gmri() +
+  scale_color_manual(values = "black") +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+  
+```
+
+## Bottom Salinity
+
+
+```{r}
+# Plot as years with other data
+plot_var <- "Bottom Salinity"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(reference_annual, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  # Bio Covariates
+  #geom_jitter(data = bio_regions, aes(EST_YEAR, BT_seasonal), width = 0.2, color = "gray", alpha = 0.1) +
+  geom_point(data = bio_regions_annual, aes(year, bot_sal), color = "black") +
+  scale_fill_gmri() +
+  scale_color_manual(values = c("black")) +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+  
+```
+
+:::
+
+
+# VAST covariate scaling and prediction un-scaling:
+
+Rescaled Enhanced Biological Data and Projected Physical Data – Before we fit the model, we center and scale each variable. 
+
+This dataset is at “Box/Mills Lab/Projects/COCA19_Projections/data/combined/all_tows_all_covs_rescale.rds.” 
+
+```{r}
+all_tows_rescaled <- read_rds(str_c(cs_path("mills"), "Projects/COCA19_Projections/data/combined/all_tows_all_covs_rescale.rds" ))
+
+# Combine them with regions
+bio_regions_scaled <- add_region_labels(all_tows_rescaled)
+
+
+# Get the annual averages
+bio_regions_annual_scaled <- bio_regions_scaled %>% 
+  group_by(year = EST_YEAR, Region) %>% 
+  summarise(
+    bot_temp = mean(BT_seasonal),
+    surf_temp = mean(SST_seasonal),
+    surf_sal = mean(SS_seasonal),
+    bot_sal = mean(BS_seasonal),
+    .groups = "drop"
+  ) %>% drop_na()
+```
+
+
+
+We keep the mean/SD info for each variable and then also go through a process to rescale the projected values from the CMIP6 experiments using these mean and SD values before making the projections. 
+
+These “prediction” datasets are located in “Box/Mills Lab/Projects/COCA19_Projections/data/predict” and are named: 
+ 1. CMIP6_SSP5_85_mean_dat.csv 
+ 2. CMIP6_SSP5_85_95thpercentile_dat.csv 
+ 3. CMIP6_SSP5_85_5thpercentile_dat.csv 
+ 4. CMIP6_SSP1_26_mean_dat.csv 
+ 5. CMIP6_SSP1_26_95thpercentile_dat.csv 
+ 6. CMIP6_SSP1_26_5thpercentile_dat.csv
+
+```{r}
+# This is the folder where the mean values are stored to scale the covariates
+predictions_path <- str_c(cs_path("mills"), "Projects/COCA19_Projections/data/predict/")
+
+# Load the scaled SSP1 data
+ssp1_pred_ds <- read_csv(str_c(predictions_path, "CMIP6_SSP1_26_mean_dat.csv")) %>% 
+      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "Mean")
+ssp1_pred_5  <- read_csv(str_c(predictions_path, "CMIP6_SSP1_26_5thpercentile_dat.csv")) %>% 
+      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "5th Percentile")
+ssp1_pred_95 <- read_csv(str_c(predictions_path, "CMIP6_SSP1_26_95thpercentile_dat.csv")) %>% 
+      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "95th Percentile")
+
+# Load the scaled SSP5 data
+ssp5_pred_ds <- read_csv(str_c(predictions_path, "CMIP6_SSP5_85_mean_dat.csv"))  %>% 
+      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "Mean")
+ssp5_pred_5  <- read_csv(str_c(predictions_path, "CMIP6_SSP5_85_5thpercentile_dat.csv"))  %>% 
+      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "5th Percentile")
+ssp5_pred_95 <- read_csv(str_c(predictions_path, "CMIP6_SSP5_85_95thpercentile_dat.csv")) %>% 
+      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "95th Percentile")
+
+
+# The 5th and 95th can be joined to one dataset and given reion labels
+ssp1_pred_lims <- left_join(ssp1_pred_ds, ssp1_pred_5) %>% 
+  left_join(ssp1_pred_95) %>% 
+  select(-c(1, 2, "Extrap_ID", "Date")) %>% 
+  add_region_labels(coords = c("Lon", "Lat")) %>% 
+  mutate(scenario = "SSP1: 2.6") 
+
+# Do it for ssp5
+ssp5_pred_lims <- left_join(ssp5_pred_ds, ssp5_pred_5) %>% 
+  left_join(ssp5_pred_95) %>% 
+  select(-c(1, 2, "Extrap_ID", "Date")) %>% 
+  add_region_labels(coords = c("Lon", "Lat")) %>% 
+  mutate(scenario = "SSP5: 8.5") 
+
+# Bind them together
+# Get annual averages
+ssps_annual_scaled <- bind_rows(ssp1_pred_lims, ssp5_pred_lims) %>% 
+  group_by(year = Year_Cov, Region, scenario, variable) %>% 
+  summarise(
+    ensemble_mean = mean(Mean, na.rm = T),
+    "5th Percentile" = mean(`5th Percentile`),
+    "95th Percentile" = mean(`95th Percentile`),
+    .groups = "drop") %>% 
+  filter(variable != "Depth") %>% 
+  mutate(
+    variable = case_when(
+      variable == "SST_seasonal" ~ "Surface Temperature",
+      variable == "BT_seasonal" ~ "Bottom Temperature"
+    ))
+```
+
+
+@Adam Kemberling do you think we could make similar ribbon plots from these datasets as the ones you’ve produced already? The y axis will be different because it is now the scaled/centered seasonal average BT and SST, but we could double check that general patterns and trends should match what we see with Adam’s current ribbon plots. If for some reason we don’t, that points to a potential issue with the CMIP6_data_processing.R script, or potentially the “scaling/centering” approach.
+
+::: {.panel-tabset}
+
+## Surface Temperature
+
+
+
+```{r}
+# Plot as years with other data
+plot_var <- "Surface Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual_scaled, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  # geom_line(
+  #   data = filter(ssps_annual_scaled, variable == plot_var),
+  #   aes(year, ensemble_mean, color = scenario),
+  #   linewidth = 0.7, key_glyph = "timeseries") +
+  # Bio Covariates
+  geom_point(data = bio_regions_annual_scaled, aes(year, surf_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  #scale_color_manual(values = "black") +
+  scale_color_gmri() +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", 
+       color = "Observational Data", 
+       x = "", 
+       y = str_c(plot_var, " - z-scaled"))
+```
+
+
+## Bottom Temperature
+
+
+
+```{r}
+# Plot as years with other data
+plot_var <- "Bottom Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_annual_scaled, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  # geom_line(
+  #   data = filter(ssps_annual_scaled, variable == plot_var),
+  #   aes(year, ensemble_mean, color = scenario),
+  #   linewidth = 0.7, key_glyph = "timeseries") +
+  # Bio Covariates
+  geom_point(data = bio_regions_annual_scaled, aes(year, surf_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  #scale_color_manual(values = "black") +
+  scale_color_gmri() +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_wrap(~Region, ncol = 1, scales = "free") +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", 
+       color = "Observational Data", 
+       x = "", 
+       y = str_c(plot_var, " - z-scaled"))
+```
+
+
+
+:::
+
+
+
+
+# Scenario Distances from Baseline Observations: 2000-2019
+
+A 20-year period was used as a "baseline period" for fitting species distribution models to environmental features of surface and bottom temperatures in space.
+
+In the following tables the average annual temperatures for this period have been removed, with temperatures reported as a departure from this baseline.
+
+These tables could be slimmed down a lot. I think the most interesting things to include would be the means from both scenarios, and the distance between the two of them: "SSP1: 2.6 projects a mean temperature of +1C by 2040 in the Gulf of Maine. The more pessimistic scenario SSP5: 8.5 projects a similar future at +1.2C"... Something like that. Range of confidence and amount they overlap would also be interesting
+
+```{r}
+baseline_means <- reference_annual %>% 
+  filter(year %in% c(2000:2019)) %>% 
+  group_by(Region, variable) %>% 
+  summarise(
+    base_mean = mean(mean_val)
+  )
+
+# Get decadal summaries
+ssps_decadal <- ssps_annual %>% 
+  filter(year>= 2000) %>% 
+  left_join(baseline_means,  join_by("Region", "variable")) %>% 
+  mutate(
+    mean_anom = `Ensemble Mean` - base_mean,
+    lower_conf = `95th Percentile` - base_mean,
+    upper_conf = `95th Percentile` - base_mean,
+    decade = floor_decade(year)) %>% 
+  group_by(scenario, Region, decade, variable) %>% 
+  summarise(
+    mean_anom = mean(mean_anom),
+    lower_conf = mean(lower_conf),
+    upper_conf = mean(upper_conf),
+    .groups = "drop")
+```
+
+
+```{r}
+# Make a table, change to a function so we can make tabs
+
+baseline_difference_table <- function(var_option, color_domain = c(0,6), palette = "rcartocolor::Peach"){
+  ssps_decadal %>% 
+  filter(variable %in% var_option) %>% 
+  mutate(scenario = str_sub(scenario, 1, 4)) %>% 
+  pivot_wider(names_from = scenario, values_from = c(mean_anom, lower_conf, upper_conf)) %>% 
+  group_by(Region, variable) %>% 
+  gt() %>% 
+  tab_header(
+    title = "Ensemble Differences from Observed Baseline Conditions", 
+    subtitle = "Difference in Bias-Corrected Ensemble Data when Compared to 2000-2019 Averages from OISSTv2 & SODA") %>% 
+  tab_spanner(columns = contains("SSP1"), label = "SSP1: 2.6") %>% 
+  tab_spanner(columns = contains("SSP5"), label = "SSP5: 8.5") %>% 
+   fmt_number(
+    columns = -c(decade, Region, variable),
+    decimals = 2,
+    use_seps = FALSE) %>% 
+  data_color(
+    columns = c(mean_anom_SSP1, mean_anom_SSP5), 
+    palette = palette, 
+    domain = color_domain, na_color = "transparent"
+    #domain = col_numeric(domain = c(0,5)) 
+    ) %>% 
+  cols_label(
+    decade = "",
+    mean_anom_SSP1 = "Ensemble Mean",
+    lower_conf_SSP1 = "5th Percentile",
+    upper_conf_SSP1 = "95th Percentile",
+    mean_anom_SSP5 = "Ensemble Mean",
+    lower_conf_SSP5 = "5th Percentile",
+    upper_conf_SSP5 = "95th Percentile")
+}
+
+
+  
+```
+
+::: {.panel-tabset}
+
+## Surface Temperature
+```{r}
+baseline_difference_table(var_option = "Surface Temperature")
+```
+
+## Bottom Temperature
+```{r}
+baseline_difference_table(var_option = "Bottom Temperature")
+```
+
+## Suface Salinity
+```{r}
+baseline_difference_table(var_option = "Surface Salinity", palette = "rcartocolor::BluYl", color_domain = c(1, -2))
+```
+
+## Bottom Salinity
+```{r}
+baseline_difference_table(var_option = "Bottom Salinity", palette = "rcartocolor::BluYl", color_domain = c(1, -2))
+```
+
+:::
+
+
+# Seasonal Comparisons
+
+Do baseline conditions look vastly different on a map?
+
+Spring = March - May
+Summer = June - August
+August = September - November
+
+
+3 seasons x 2 variables x 3 (observation dataset + 2 scenarios)
+
+```{r, eval = FALSE}
+# these need to be converted to .nc to be processed better in xarray
+# Path to the bias correction folder
+
+
+# Need to do this 4 times, and for each scenario
+pick_var <- "surf_temp"
+var_lab <- "sst"
+var_unit <- "degC"
+pick_scenario <- "SSP5_85"
+var_path <- str_c(cmip_path, pick_scenario, "/BiasCorrected/EnsembleData/", pick_var,"/")
+
+
+# File Names
+full_5th   <- brick(str_c(var_path, pick_var, "_OISST_bias_corrected_5thpercentile.grd"))
+full_mean  <- brick(str_c(var_path, pick_var, "_OISST_bias_corrected_mean.grd"))
+full_95th  <- brick(str_c(var_path, pick_var, "_OISST_bias_corrected_95thpercentile.grd"))
+
+# Save as a different file format than .grd...
+
+
+# Hates being a netcdf
+writeRaster(
+  x = full_5th, 
+  filename = str_c(var_path, pick_var, "_OISST_bias_corrected_5thpercentile.nc"), 
+  # overwrite = TRUE, 
+  format="CDF",     
+  varname = var_lab, 
+  varunit="degC", 
+  longname=  str_c(pick_scenario, ": Ensemble Mean Bias Corrected ", pick_var), 
+  xname="Longitude",   
+  yname="Latitude", 
+  zname="Time (Month)")
+
+
+```
+
