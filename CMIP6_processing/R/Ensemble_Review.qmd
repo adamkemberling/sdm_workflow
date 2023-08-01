@@ -18,6 +18,7 @@ execute:
   comment: ""
   fig-align: center
   fig-height: 8
+  fig-width: 8
 ---
 
 ```{r}
@@ -505,8 +506,9 @@ ssps_annual <- ssp_both %>%
   filter(year >= 1980)
 
 
+
 # Do it for reference datasets
-reference_annual <- references_combined %>% 
+reference_annual <- references_combined %>%  
   pivot_longer(cols = c(surf_temp, bot_temp, bot_sal, surf_sal), names_to = "variable", values_to = "mu")  %>% 
   mutate(
     reference_dataset = if_else(variable == "surf_temp", "OISSTv2", "SODA Reanalysis"),
@@ -518,6 +520,51 @@ reference_annual <- references_combined %>%
   group_by(year = year(date), Region, variable, reference_dataset) %>% 
     summarise(mean_val = mean(mu, na.rm = T),
               .groups = "drop")
+
+
+
+#-------------------------------
+
+
+
+# Make them seasonal
+ssps_seasonal <- ssp_both %>% 
+  mutate(Season = case_when(
+    month %in% c(3:5) ~ "SPRING", 
+    month %in% c(6:8) ~ "SUMMER", 
+    month %in% c(9:11) ~ "FALL", 
+    month %in% c(12,1,2) ~ "WINTER" )) %>% 
+  group_by(scenario, Region, Season, year, variable) %>% 
+  summarise(
+    `5th Percentile` = mean(`5th Percentile`, na.rm = T),
+    `95th Percentile` = mean(`95th Percentile`, na.rm = T),
+    `Ensemble Mean` = mean(`Ensemble Mean`, na.rm = T),
+    .groups = "drop") %>% 
+  filter(year >= 1980)  %>% 
+  filter(Season != "Winter")
+
+
+# Get reference period seasonal averages
+reference_seasonal <-  references_combined %>%  
+  pivot_longer(cols = c(surf_temp, bot_temp, bot_sal, surf_sal), names_to = "variable", values_to = "mu")  %>% 
+  mutate(
+    reference_dataset = if_else(variable == "surf_temp", "OISSTv2", "SODA Reanalysis"),
+    variable = case_when(
+      variable == "surf_temp" ~ "Surface Temperature",
+      variable == "bot_temp" ~ "Bottom Temperature",
+      variable == "surf_sal" ~ "Surface Salinity",
+      variable == "bot_sal" ~ "Bottom Salinity")) %>% 
+  mutate(
+    month = as.numeric(month),
+    Season = case_when(
+      month %in% c(3:5) ~ "SPRING", 
+      month %in% c(6:8) ~ "SUMMER", 
+      month %in% c(9:11) ~ "FALL", 
+      month %in% c(12,1,2) ~ "WINTER" )) %>% 
+  group_by(year = year(date), Region, Season, variable, reference_dataset) %>% 
+    summarise(mean_val = mean(mu, na.rm = T),
+              .groups = "drop") %>% 
+  filter(Season != "Winter")
 ```
 
 
@@ -544,6 +591,8 @@ ggplot() +
   theme_gmri() +
   labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
 ```
+
+
 
 
 ### Bottom Temperature
@@ -690,6 +739,8 @@ bio_regions_annual <- bio_regions %>%
     bot_sal = mean(BS_seasonal),
     .groups = "drop"
   ) %>% drop_na()
+
+
 ```
 
 
@@ -729,6 +780,7 @@ ggplot() +
 
 
 
+
 ## Bottom Temperature
 
 
@@ -756,6 +808,9 @@ ggplot() +
   labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
   
 ```
+
+
+
 
 ## Surface Salinity
 
@@ -814,6 +869,85 @@ ggplot() +
 :::
 
 
+
+
+### How do the un-scaled seasonal values look?
+
+```{r}
+# Get the seasonal averages
+bio_regions_seasonal <- bio_regions %>% 
+  group_by(year = EST_YEAR, Region, Season = SEASON) %>% 
+  summarise(
+    bot_temp = mean(BT_seasonal),
+    surf_temp = mean(SST_seasonal),
+    surf_sal = mean(SS_seasonal),
+    bot_sal = mean(BS_seasonal),
+    .groups = "drop"
+  ) %>% drop_na()
+
+```
+
+
+::: {.panel-tabset}
+
+## Surface Temperature
+
+
+```{r}
+plot_var <- "Surface Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_seasonal, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(data = filter(ssps_seasonal, variable == plot_var),
+    aes(x = year, y = `Ensemble Mean`, color = scenario), linewidth = 0.7) +
+  geom_line(
+    data = filter(reference_seasonal, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  geom_point(data = bio_regions_seasonal, aes(year, surf_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_manual(values = c("black", gmri_cols("blue"), gmri_cols("orange"))) +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_grid(Region~Season) +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+```
+
+
+## Bottom Temperature
+
+
+```{r}
+plot_var <- "Bottom Temperature"
+ggplot() +
+  geom_ribbon(
+    data = filter(ssps_seasonal, variable == plot_var),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.6) +
+  geom_line(data = filter(ssps_seasonal, variable == plot_var),
+    aes(x = year, y = `Ensemble Mean`, color = scenario), linewidth = 0.7) +
+  geom_line(
+    data = filter(reference_seasonal, variable == plot_var), 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 0.7, key_glyph = "timeseries") +
+  geom_point(data = bio_regions_seasonal, aes(year, bot_temp), color = "black") +
+  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
+  scale_fill_gmri() +
+  scale_color_manual(values = c("black", gmri_cols("blue"), gmri_cols("orange"))) +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  facet_grid(Region~Season) +
+  theme_gmri() +
+  labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
+```
+
+:::
+
+
+
+
 # VAST covariate scaling and prediction un-scaling:
 
 Rescaled Enhanced Biological Data and Projected Physical Data – Before we fit the model, we center and scale each variable. 
@@ -831,6 +965,18 @@ bio_regions_scaled <- add_region_labels(all_tows_rescaled)
 # Get the annual averages
 bio_regions_annual_scaled <- bio_regions_scaled %>% 
   group_by(year = EST_YEAR, Region) %>% 
+  summarise(
+    bot_temp = mean(BT_seasonal),
+    surf_temp = mean(SST_seasonal),
+    surf_sal = mean(SS_seasonal),
+    bot_sal = mean(BS_seasonal),
+    .groups = "drop"
+  ) %>% drop_na()
+
+
+# Get the annual averages
+bio_regions_seasonal_scaled <- bio_regions_scaled %>% 
+  group_by(year = EST_YEAR, Region, Season = SEASON) %>% 
   summarise(
     bot_temp = mean(BT_seasonal),
     surf_temp = mean(SST_seasonal),
@@ -859,21 +1005,37 @@ They are named:
 # This is the folder where the mean values are stored to scale the covariates
 predictions_path <- str_c(cs_path("mills"), "Projects/COCA19_Projections/data/predict/")
 
-# Load the scaled SSP1 data
-ssp1_pred_ds <- read_csv(str_c(predictions_path, "CMIP6_SSP1_26_mean_dat.csv")) %>% 
-      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "Mean")
-ssp1_pred_5  <- read_csv(str_c(predictions_path, "CMIP6_SSP1_26_5thpercentile_dat.csv")) %>% 
-      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "5th Percentile")
-ssp1_pred_95 <- read_csv(str_c(predictions_path, "CMIP6_SSP1_26_95thpercentile_dat.csv")) %>% 
-      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "95th Percentile")
 
-# Load the scaled SSP5 data
-ssp5_pred_ds <- read_csv(str_c(predictions_path, "CMIP6_SSP5_85_mean_dat.csv"))  %>% 
-      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "Mean")
-ssp5_pred_5  <- read_csv(str_c(predictions_path, "CMIP6_SSP5_85_5thpercentile_dat.csv"))  %>% 
-      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "5th Percentile")
-ssp5_pred_95 <- read_csv(str_c(predictions_path, "CMIP6_SSP5_85_95thpercentile_dat.csv")) %>% 
-      pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "95th Percentile")
+# 1.Load the scaled SSP1 data
+ssp1_pred_ds <- read_csv(
+  file = str_c(predictions_path, "CMIP6_SSP1_26_mean_dat.csv")) %>% 
+  pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "Mean")
+
+ssp1_pred_5  <- read_csv(
+  file = str_c(predictions_path, "CMIP6_SSP1_26_5thpercentile_dat.csv")) %>% 
+  pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "5th Percentile")
+
+ssp1_pred_95 <- read_csv(
+  file = str_c(predictions_path, "CMIP6_SSP1_26_95thpercentile_dat.csv")) %>% 
+  pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "95th Percentile")
+
+
+
+# 2. Load the scaled SSP5 data
+ssp5_pred_ds <- read_csv(
+  file = str_c(predictions_path, "CMIP6_SSP5_85_mean_dat.csv"))  %>% 
+  pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "Mean")
+
+ssp5_pred_5  <- read_csv(
+  file = str_c(predictions_path, "CMIP6_SSP5_85_5thpercentile_dat.csv"))  %>% 
+  pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "5th Percentile")
+
+ssp5_pred_95 <- read_csv(
+  str_c(predictions_path, "CMIP6_SSP5_85_95thpercentile_dat.csv")) %>% 
+  pivot_longer(cols = c(SST_seasonal, BT_seasonal, Depth), names_to = "variable", values_to = "95th Percentile")
+
+
+
 
 
 # The 5th and 95th can be joined to one dataset and given reion labels
@@ -883,6 +1045,8 @@ ssp1_pred_lims <- left_join(ssp1_pred_ds, ssp1_pred_5) %>%
   add_region_labels(coords = c("Lon", "Lat")) %>% 
   mutate(scenario = "SSP1: 2.6") 
 
+
+
 # Do it for ssp5
 ssp5_pred_lims <- left_join(ssp5_pred_ds, ssp5_pred_5) %>% 
   left_join(ssp5_pred_95) %>% 
@@ -890,10 +1054,30 @@ ssp5_pred_lims <- left_join(ssp5_pred_ds, ssp5_pred_5) %>%
   add_region_labels(coords = c("Lon", "Lat")) %>% 
   mutate(scenario = "SSP5: 8.5") 
 
+
+
 # Bind them together
 # Get annual averages
 ssps_annual_scaled <- bind_rows(ssp1_pred_lims, ssp5_pred_lims) %>% 
   group_by(year = Year_Cov, Region, scenario, variable) %>% 
+  summarise(
+    ensemble_mean = mean(Mean, na.rm = T),
+    "5th Percentile" = mean(`5th Percentile`),
+    "95th Percentile" = mean(`95th Percentile`),
+    .groups = "drop") %>% 
+  filter(variable != "Depth") %>% 
+  mutate(
+    variable = case_when(
+      variable == "SST_seasonal" ~ "Surface Temperature",
+      variable == "BT_seasonal" ~ "Bottom Temperature"
+    ))
+
+
+
+# Bind them together
+# Get annual averages
+ssps_seasonal_scaled <- bind_rows(ssp1_pred_lims, ssp5_pred_lims) %>% 
+  group_by(year = Year_Cov, Region, Season, scenario, variable) %>% 
   summarise(
     ensemble_mean = mean(Mean, na.rm = T),
     "5th Percentile" = mean(`5th Percentile`),
@@ -969,7 +1153,7 @@ ggplot() +
 :::
 
 
-# How do the Scaled Seasonal Values look?
+### How do the Scaled Seasonal Values look?
 
 ```{r}
 # Get the seasonal averages
@@ -983,6 +1167,9 @@ bio_regions_seasonal_scaled <- bio_regions_scaled %>%
     .groups = "drop"
   ) %>% drop_na()
 
+
+
+# Get the projected SSP values on scaled axes for seasonal averages
 ssps_seasonal_scaled <- bind_rows(ssp1_pred_lims, ssp5_pred_lims) %>% 
   group_by(year = Year_Cov, Season, Region, scenario, variable) %>% 
   summarise(
@@ -1013,13 +1200,16 @@ ggplot() +
     data = filter(ssps_seasonal_scaled, variable == plot_var),
     aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
     color = "white", alpha = 0.6) +
+  geom_line(
+    data = filter(ssps_seasonal_scaled, variable == plot_var),
+    aes(x = year, y = ensemble_mean, color = scenario),
+    linewidth = 0.7) +
   geom_point(data = bio_regions_seasonal_scaled, 
              aes(year, surf_temp), color = "black") +
-  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
   scale_fill_gmri() +
   scale_color_gmri() +
   scale_x_continuous(expand = expansion(add = c(3,0))) +
-  facet_grid(Region~Season, scales = "free") +
+  facet_grid(Region~Season) +
   theme_gmri() +
   labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", 
        color = "Observational Data", 
@@ -1041,11 +1231,10 @@ ggplot() +
     color = "white", alpha = 0.6) +
   geom_point(data = bio_regions_seasonal_scaled, 
              aes(year, bot_temp), color = "black") +
-  scale_y_continuous(labels = number_format(suffix = "\u00B0C")) +
   scale_fill_gmri() +
   scale_color_gmri() +
   scale_x_continuous(expand = expansion(add = c(3,0))) +
-  facet_grid(Region~Season, scales = "free") +
+  facet_grid(Region~Season) +
   theme_gmri() +
   labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", 
        color = "Observational Data", 
@@ -1160,51 +1349,81 @@ baseline_difference_table(var_option = "Bottom Salinity", palette = "rcartocolor
 
 
 
-# Seasonal Comparisons
-
-Do baseline conditions look vastly different on a map?
-
-Spring = March - May
-Summer = June - August
-August = September - November
+#### Aside: Exporting Rasters as Netcdf
 
 
-3 seasons x 2 variables x 3 (observation dataset + 2 scenarios)
+
 
 ```{r, eval = FALSE}
-# these need to be converted to .nc to be processed better in xarray
-# Path to the bias correction folder
 
 
-# Need to do this 4 times, and for each scenario
-pick_var <- "surf_temp"
-var_lab <- "sst"
-var_unit <- "degC"
-pick_scenario <- "SSP5_85"
-var_path <- str_c(cmip_path, pick_scenario, "/BiasCorrected/EnsembleData/", pick_var,"/")
+
+# 
+# # Saving SST as a Netcdf
+# 
+# # Need to do this 2 times per variable, one for each scenario
+# pick_scenario <- "SSP1_26"
+# #pick_scenario <- "SSP5_85"
+# 
+# 
+# # 1.SST
+# pick_var <- "surf_temp"
+# var_lab <- "sst"
+# var_unit <- "degC"
+# 
+# # Path to the bias correction folder
+# var_path <- str_c(cmip_path, pick_scenario, "/BiasCorrected/EnsembleData/", pick_var,"/")
+# full_mean  <- rast(str_c(var_path, pick_var, "_OISST_bias_corrected_mean.grd"))
+# 
+# # Set the time dimension
+# terra::time(full_mean) <- as.Date(str_c(str_replace(str_remove(names(full_mean), "X"), "[.]", "-"), "-15"))
+# 
+# # Set the file name
+# filename <- str_c(var_path, pick_var, "_OISST_bias_corrected_mean.nc")
+# 
+# # Save as a different file format than .grd... using TERRA
+# terra:::writeCDF(
+#   x = full_mean, 
+#   filename = filename, 
+#   var_lab,
+#   longname = "Sea surface temperature",
+#   unit = var_unit,
+#   overwrite = T)
 
 
-# File Names
-full_5th   <- brick(str_c(var_path, pick_var, "_OISST_bias_corrected_5thpercentile.grd"))
-full_mean  <- brick(str_c(var_path, pick_var, "_OISST_bias_corrected_mean.grd"))
-full_95th  <- brick(str_c(var_path, pick_var, "_OISST_bias_corrected_95thpercentile.grd"))
 
-# Save as a different file format than .grd...
-
-
-# Hates being a netcdf
-writeRaster(
-  x = full_5th, 
-  filename = str_c(var_path, pick_var, "_OISST_bias_corrected_5thpercentile.nc"), 
-  # overwrite = TRUE, 
-  format="CDF",     
-  varname = var_lab, 
-  varunit="degC", 
-  longname=  str_c(pick_scenario, ": Ensemble Mean Bias Corrected ", pick_var), 
-  xname="Longitude",   
-  yname="Latitude", 
-  zname="Time (Month)")
-
+# # Saving Bot Temp as a Netcdf
+# 
+# # Need to do this 2 times per variable, one for each scenario
+# pick_scenario <- "SSP1_26"
+# #pick_scenario <- "SSP5_85"
+# 
+# 
+# # # 2. Bottom Temperature
+# pick_var <- "bot_temp"
+# var_lab <- "bot_temp"
+# var_unit <- "degC"
+# 
+# # Path to the bias correction folder
+# var_path <- str_c(cmip_path, pick_scenario, "/BiasCorrected/EnsembleData/", pick_var,"/")
+# full_mean  <- rast(str_c(var_path, pick_var, "_SODA_bias_corrected_mean.grd"))
+# 
+# # Set the time dimension
+# terra::time(full_mean) <- as.Date(str_c(str_replace(str_remove(names(full_mean), "X"), "[.]", "-"), "-15"))
+# 
+# # Set the file name
+# filename <- str_c(var_path, pick_var, "_SODA_bias_corrected_mean.nc")
+# 
+# # Save as a different file format than .grd... using TERRA
+# terra:::writeCDF(
+#   x = full_mean, 
+#   filename = filename, 
+#   var_lab,
+#   longname = "Sea bottom temperature",
+#   unit = var_unit,
+#   overwrite = T)
 
 ```
+
+
 

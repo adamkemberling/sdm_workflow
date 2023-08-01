@@ -579,6 +579,46 @@ writeRaster(full_95th, paste0(var_path, "_SODA_bias_corrected_95thpercentile.grd
 ```
 
 
+## Exporting as Netcdf
+
+
+```{r, eval = FALSE}
+
+# Saving Bot Temp as a Netcdf
+
+# Need to do this 2 times per variable, one for each scenario
+# pick_scenario <- "SSP1_26"
+pick_scenario <- "SSP5_85"
+
+
+# # 2. Bottom Temperature
+pick_var <- "bot_temp"
+var_lab <- "bot_temp"
+var_unit <- "degC"
+
+# Path to the bias correction folder
+var_path <- str_c(cmip_path, pick_scenario, "/BiasCorrected/EnsembleData/", pick_var,"/")
+full_mean  <- rast(str_c(var_path, pick_var, "_SODA_bias_corrected_mean.grd"))
+
+# Set the time dimension
+terra::time(full_mean) <- as.Date(str_c(str_replace(str_remove(names(full_mean), "X"), "[.]", "-"), "-15"))
+
+# Set the file name
+filename <- str_c(var_path, pick_var, "_SODA_bias_corrected_mean.nc")
+
+# Save as a different file format than .grd... using TERRA
+terra:::writeCDF(
+  x = full_mean, 
+  filename = filename, 
+  var_lab,
+  longname = "Sea bottom temperature",
+  unit = var_unit,
+  overwrite = T)
+
+```
+
+
+
 
 ### Checking Trajectories
 

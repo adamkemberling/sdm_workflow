@@ -1,0 +1,756 @@
+---
+title: "SDM Baseline Condition Map Review"
+author: "Adam Kemberling"
+url: "https://github.com/adamkemberling"
+affiliation: "Gulf of Maine Research Institute"
+affiliation_url: "https://www.gmri.org"
+description: | 
+  Seasonal Patterns in Sea Surface Temperatures
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+execute: 
+  echo: false
+  warning: false
+  message: false
+  comment: ""
+  fig-align: center
+  fig-height: 8
+  fig-width: 8
+---
+
+
+```{r}
+#| label: packages
+#| include: false
+#| echo: false
+#| warning: false
+
+####  Packages  ####
+library(lubridate)
+library(here)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(gmRi)
+library(gt)
+library(patchwork)
+library(tidyverse)
+library(terra) #use terra to save with layer names
+library(tidyterra)
+library(ncdf4)
+library(rcartocolor)
+
+
+
+# Box paths
+res_path <- cs_path("res")
+oisst_path <- cs_path("res", "OISST/oisst_mainstays")
+cmip_path  <- cs_path("RES_Data", "CMIP6")
+soda_path  <- cs_path("RES_Data", "SODA")
+
+####  Functions  ####
+# source(here::here("CMIP6_processing/R/sdm_workflow_funs.R"))
+
+
+# Polygons for mapping
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+world_sf    <- ne_countries(returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+# set overall zoom for maps
+xlimz <- c(-76, -57)
+ylimz <- c(35, 48)
+
+```
+
+
+
+# Seasonal Baseline Map Comparisons
+
+Do baseline conditions look vastly different on a map? Are there Seasonal Patterns to the error?
+
+Spring = March - May   
+Summer = June - August   
+August = September - November   
+Winter = December - February   
+
+
+**Question that came up:**   
+Should we scale the covariates and SSP scenarios based on their baseline mean/variance rather than the extracted data points mean/variance?
+
+For that we would take a grand mean and variance for the year over our complete study area, and use that to scale with.
+
+Would need mean/variance over the whole area and not by pixel to preserve the north and south patterns. But this would in theory avoid any of the spatial and temporal sampling biases.
+
+
+### Loading Baseline Period Means
+
+```{r}
+# Here is the folder
+baseline_avgs <- str_c(res_path, "CMIP6/Bias_Correction_Checking/Baseline_Env_Grids/")
+
+# Just load sst and bot temp and the two scenarios for each
+oisst_base <- terra::rast(str_c(baseline_avgs, "OISST_2000to2019_avg.nc"))
+oisst_szn_base <-terra::rast(str_c(baseline_avgs, "OISST_2000to2019_seasonal_avg.nc"))
+
+
+# Reset the extents
+# OISST starts at meridian
+ext(oisst_base) <- ext(0, 360, -90, 90)
+ext(oisst_szn_base) <- terra::ext(0, 360, -90, 90)
+oisst_base <- terra::rotate(oisst_base) %>% terra::flip(direction = "vertical")
+oisst_szn_base <- terra::rotate(oisst_szn_base) %>% terra::flip(direction = "vertical")
+
+####  SODA  ####
+soda_base <- terra::rast(str_c(baseline_avgs, "SODA_2000to2019_avg.nc"))
+soda_szn_base <- terra::rast(str_c(baseline_avgs, "SODA_2000to2019_seasonal_avg.nc"))
+
+# SODA was cropped specifically to some different area
+# And also needs a vertical flip
+soda_ext <- ext(-120, 30, 0, 80)
+ext(soda_base) <- soda_ext
+ext(soda_szn_base) <- soda_ext
+soda_base <- soda_base %>% terra::flip(direction = "vertical")
+soda_szn_base <- soda_szn_base %>% terra::flip(direction = "vertical")
+
+
+
+####  SSP Baselines  ####
+ssp1_base <- terra::rast(str_c(baseline_avgs, "SSP1_26_2000to2019_avg.nc"))
+ssp5_base <- terra::rast(str_c(baseline_avgs, "SSP5_85_2000to2019_avg.nc"))
+ssp1_szn_base <- terra::rast(str_c(baseline_avgs, "SSP1_26_2000to2019_seasonal_avg.nc"))
+ssp5_szn_base <- terra::rast(str_c(baseline_avgs, "SSP5_85_2000to2019_seasonal_avg.nc"))
+
+
+
+
+# SSPs should behave consistent across the different ones:
+ssp_ext <- ext(-99.875, -40.125, 20.125, 69.875)
+ext(ssp1_base) <- ssp_ext
+ext(ssp1_szn_base) <- ssp_ext
+ext(ssp5_base) <- ssp_ext
+ext(ssp5_szn_base) <- ssp_ext
+
+# Flip and rotate
+ssp1_base <- flip(ssp1_base, direction = "vertical")
+ssp1_szn_base <- flip(ssp1_szn_base, direction = "vertical")
+ssp5_base <- flip(ssp5_base, direction = "vertical")
+ssp5_szn_base <- flip(ssp5_szn_base, direction = "vertical")
+
+
+# # Plotting on same coordinates?
+# plot(oisst_base)
+# plot(soda_base$bot_sal)
+# plot(ssp1_base$bot_temp)
+
+
+# RESAMPLE
+# right now there are diffferent grid resolutions happening that are
+# both intentional and accidental
+# Should be able to resample to SODA grid once we match up the extents
+
+# Crop everything to SSP Area
+soda_base <- soda_base %>% terra::crop(ssp1_base) #%>% plot()
+soda_szn_base <- soda_szn_base %>% terra::crop(ssp1_base) #%>% plot()
+oisst_base <- oisst_base %>% terra::crop(ssp1_base) #%>% plot()
+oisst_szn_base <- oisst_szn_base %>% terra::crop(ssp1_base) #%>% plot()
+
+# # Extents seem fine...
+# ext(ssp1_base); ext(ssp5_base); ext(oisst_base); ext(soda_base)
+
+# Resample to a common grid:
+oisst_resamp <- terra::resample(oisst_base, soda_base, method = "bilinear") 
+oisst_szn_resamp <- terra::resample(oisst_szn_base, soda_base, method = "bilinear") 
+ssp1_resamp <- terra::resample(ssp1_base, soda_base, method = "bilinear") 
+ssp5_resamp <- terra::resample(ssp5_base, soda_base, method = "bilinear") 
+ssp1_szn_resamp <- terra::resample(ssp1_szn_base, soda_base, method = "bilinear") 
+ssp5_szn_resamp <- terra::resample(ssp5_szn_base, soda_base, method = "bilinear") 
+
+
+```
+
+
+## 2000 to 2019 In-Situ Average Conditions
+
+::: {.panel-tabset}
+
+## Surface Temperature
+
+```{r}
+
+ggplot() +
+  geom_spatraster(data = oisst_resamp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), oob = oob_squish, direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "2000-2019 OISST Average SST", title = "OISSTv2 2000-2019 Average SST") 
+```
+
+## Bottom Temperature
+
+```{r}
+ggplot() +
+  geom_spatraster(data = soda_base$bot_temp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), oob = oob_squish, direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "2000-2019 SODA Average BT", title = "SODA 2000-2019 Average BT") 
+```
+
+:::
+
+
+## 2000 to 2019 Bias-Corrected Average Conditions
+
+::: {.panel-tabset}
+
+## Surface Temperature
+
+```{r}
+p1 <- ggplot() +
+  geom_spatraster(data = ssp1_resamp$surf_temp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), 
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "2000-2019 SSP1: 2.6 Average SST", title = "SSP1: 2.6 2000-2019 Average SST") 
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp5_resamp$surf_temp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "2000-2019 SSP5: 8.5 Average SST", title = "SSP5: 8.5 2000-2019 Average SST") 
+
+p1 | p2
+
+```
+
+## Bottom Temperature
+
+```{r}
+p1 <- ggplot() +
+  geom_spatraster(data = ssp1_resamp$bot_temp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "2000-2019 SSP1: 2.6 Average BT", title = "SSP1: 2.6 2000-2019 Average BT") 
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp5_resamp$bot_temp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "2000-2019 SSP5: 8.5 Average BT", title = "SSP5: 8.5 2000-2019 Average BT") 
+
+p1 | p2
+```
+
+
+:::
+
+## SSP Scenario Difference from Observations
+
+::: {.panel-tabset}
+
+##  Surface Temperature
+
+```{r}
+p1 <- ggplot() +
+  geom_spatraster(data = ssp1_resamp$surf_temp - oisst_resamp$OISST_2000to2019_avg) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 8.5 Surface Temp. - OISST Surface Temp.", title = "SSP1: 2.6 Baseline Bias") 
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp5_resamp$surf_temp - oisst_resamp$OISST_2000to2019_avg) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Surface Temp. - OISST Surface Temp.", title = "SSP5: 8.5 Baseline Bias") 
+
+
+p1 | p2
+```
+
+## Bottom Temperature
+
+```{r}
+p1 <- ggplot() +
+  geom_spatraster(data = ssp1_resamp$bot_temp - soda_base$bot_temp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Bottom Temp. - SODA Bottom Temp.", title = "SSP1: 2.6 Baseline Bias") 
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp5_resamp$bot_temp - soda_base$bot_temp) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Bottom Temp. - SODA Bottom Temp.", title = "SSP5: 8.5 Baseline Bias") 
+
+
+p1 | p2
+```
+:::
+
+
+
+## Spring
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = oisst_szn_resamp$OISST_2000to2019_seasonal_avg_1) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), 
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Spring Temp.", title = "OISSTv2 2000-2019 Spring Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$surf_temp_1 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_1) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Spring SST - OISST", title = "SSP1: 2.6 Spring Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$surf_temp_1 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_1) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Spring SST - OISST", title = "SSP5: 8.5 Spring Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+
+### Bottom Temperature
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = soda_szn_base$bot_temp_1) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), oob = oob_squish,
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Spring Temp.", title = "SODA 2000-2019 Spring Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$bot_temp_1 - soda_szn_base$bot_temp_1) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Spring SST - SODA", title = "SSP1: 2.6 Spring Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$bot_temp_1 - soda_szn_base$bot_temp_1) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Spring BT - SODA", title = "SSP5: 8.5 Spring Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+
+:::
+
+
+
+
+## Summer
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = oisst_szn_resamp$OISST_2000to2019_seasonal_avg_2) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), oob = oob_squish,
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Summer Temp.", title = "OISSTv2 2000-2019 Summer Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$surf_temp_2 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_2) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Summer SST - OISST", title = "SSP1: 2.6 Summer Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$surf_temp_2 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_2) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Summer SST - OISST", title = "SSP5: 8.5 Summer Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+
+### Bottom Temperature
+
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = soda_szn_base$bot_temp_2) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), oob = oob_squish,
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Summer Temp.", title = "SODA 2000-2019 Summer Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$bot_temp_2 - soda_szn_base$bot_temp_2) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Summer SST - SODA", title = "SSP1: 2.6 Summer Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$bot_temp_2 - soda_szn_base$bot_temp_2) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Summer BT - SODA", title = "SSP5: 8.5 Summer Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+:::
+
+## Fall
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = oisst_szn_resamp$OISST_2000to2019_seasonal_avg_3) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25),  oob = oob_squish,
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Fall Temp.", title = "OISSTv2 2000-2019 Fall Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$surf_temp_3 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_3) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Fall SST - OISST", title = "SSP1: 2.6 Fall Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$surf_temp_3 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_3) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Fall SST - OISST", title = "SSP5: 8.5 Fall Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+### Bottom Temperature
+
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = soda_szn_base$bot_temp_3) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25), oob = oob_squish,
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Fall Temp.", title = "SODA 2000-2019 Fall Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$bot_temp_3 - soda_szn_base$bot_temp_3) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Fall SST - SODA", title = "SSP1: 2.6 Fall Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$bot_temp_3 - soda_szn_base$bot_temp_3) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Fall BT - SODA", title = "SSP5: 8.5 Fall Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+:::
+
+## Winter
+
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = oisst_szn_resamp$OISST_2000to2019_seasonal_avg_4) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25),  oob = oob_squish,
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Winter Temp.", title = "OISSTv2 2000-2019 Fall Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$surf_temp_4 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_4) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Winter SST - OISST", title = "SSP1: 2.6 Winter Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$surf_temp_4 - oisst_szn_resamp$OISST_2000to2019_seasonal_avg_4) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Winter SST - OISST", title = "SSP5: 8.5 Winter Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+
+### Bottom Temperature
+
+```{r}
+#| fig-height: 10
+p1 <- ggplot() +
+  geom_spatraster(data = soda_szn_base$bot_temp_4) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_carto_c(palette = "BluYl", limits = c(0, 25),  oob = oob_squish,
+                     direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "Observed Winter Temp.", title = "SODA 2000-2019 Fall Average") 
+
+
+p2 <- ggplot() +
+  geom_spatraster(data = ssp1_szn_resamp$bot_temp_4 - soda_szn_base$bot_temp_4) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP1: 2.6 Winter SST - SODA", title = "SSP1: 2.6 Winter Baseline Bias") 
+
+p3 <- ggplot() +
+  geom_spatraster(data = ssp5_szn_resamp$bot_temp_4 - soda_szn_base$bot_temp_4) +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  scale_fill_distiller(palette = "RdBu", limits = c(-2, 2), direction = -1, na.value = "transparent") +
+  theme_bw() +
+  map_theme(legend.position = "bottom") +
+  guides(fill = guide_colorbar(title.position = "top", title.hjust = 0.5, barwidth = unit(3, "in"))) +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  labs(color = "", fill = "SSP5: 8.5 Winter BT - SODA", title = "SSP5: 8.5 Winter Baseline Bias") 
+
+
+p1/p2/p3
+```
+
+:::

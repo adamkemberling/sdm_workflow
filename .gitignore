@@ -28,3 +28,6 @@ scratch/aja/TargetsSDM/results
 
 # For bookdown
 docs/.nojekyll
+
+# Local data
+local_scrap/*
