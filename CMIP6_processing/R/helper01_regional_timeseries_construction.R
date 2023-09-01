@@ -8,12 +8,12 @@
 library(here)
 library(ncdf4)
 library(RNetCDF)
-library(raster)
 library(janitor)
 library(sf)
 library(gmRi)
 library(patchwork)
 library(tidyverse)
+library(raster)
 
 # research path
 res_path   <- cs_path("res", "")
@@ -22,32 +22,48 @@ soda_path  <- cs_path("RES_Data", "SODA")
 
 
 
+####  Loading Resources  ####
+
+####  1. Load Regions to Crop  ####
 
 
-####  Select SSP Scenario  ####
-# ssp_select <- "SSP1_26"
-ssp_select <- "SSP5_85"
-
-####  Select Variable  ####
-
-# Select ONE variable to use for workflow:
-# var_select <- "surf_temp"
-# var_select <- "surf_sal"
-# var_select <- "bot_temp"
-var_select <- "bot_sal"
+# 1. Gulf of Maine
+trawl_regions <- get_timeseries_paths("nmfs_trawl_regions", box_location = "cloudstorage")
+trawl_gom <- read_sf(trawl_regions$gulf_of_maine$shape_path)
 
 
+# 2. The Full survey area we use
+# Load all the strata and just filter out the crap ones
+trawl_full <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.shp"))  %>% 
+  janitor::clean_names() %>% 
+  filter(strata >= 01010 ,
+         strata <= 01760,
+         strata != 1310,
+         strata != 1320,
+         strata != 1330,
+         strata != 1350,
+         strata != 1410,
+         strata != 1420,
+         strata != 1490) 
+
+
+# 3. DFO Survey Area
+dfo_path <- cs_path(box_group = "mills", subfolder = "Projects/DFO_survey_data/strata_shapefiles")
+dfo_area <- read_sf(str_c(dfo_path, "MaritimesRegionEcosystemAssessmentBoundary.shp"))
+
+
+# 4. Ecological Production Units
+epu_sf <- ecodata::epu_sf
 
 
 
-####  Load Bias Corrected Data  ####
+# 5. Entire VAST Area
 
-# variables to pull
-vars_neat <- c(
-   "Surface Temperature" = "surf_temp",
-   "Surface Salinity"    = "surf_sal", 
-   "Bottom Temperature"  = "bot_temp",
-   "Bottom Salinity"     = "bot_sal")
+# Just the shapefile
+trawl_crsbnd <- read_sf(str_c(dfo_path, "DFO_NMFS_CRSBND_area.geojson"))
+
+
+
 
 
 
@@ -104,13 +120,42 @@ load_ensemble_percentiles <- function(cmip_var, ssp_scenario){
 
 
 
+####  3. Set Options  ####
+
+# This code is run sequentially for: SSP scenario & ssp var
+
+
+
+####  Select SSP Scenario  ####
+# ssp_select <- "SSP1_26"
+ssp_select <- "SSP5_85"
+
+
+
+####  Select Variable  ####
+
+# Select ONE variable to use for workflow:
+# var_select <- "surf_temp"
+# var_select <- "surf_sal"
+# var_select <- "bot_temp"
+var_select <- "bot_sal"
+
+
+
+# variables to pull
+vars_neat <- c(
+  "Surface Temperature" = "surf_temp",
+  "Surface Salinity"    = "surf_sal", 
+  "Bottom Temperature"  = "bot_temp",
+  "Bottom Salinity"     = "bot_sal")
 
 
 
 
-##### Import Scenario Data  ####
+####  Load Bias Corrected SSP Scenario Data  ####
 
-# load bias corrected data
+
+# load bias corrected data for individual scenario runs
 observed_var <- load_bias_corrected(cmip_var = var_select, ssp_scenario = ssp_select)
 
 # Load ensemble percentile data
@@ -120,42 +165,10 @@ ensemble_var <- load_ensemble_percentiles(cmip_var = var_select, ssp_scenario = 
 
 
 
-####  Load Regions to Crop  ####
-
-# 1. Gulf of Maine
-trawl_regions <- get_timeseries_paths("nmfs_trawl_regions", box_location = "cloudstorage")
-trawl_gom <- read_sf(trawl_regions$gulf_of_maine$shape_path)
-
-# 2. The Full survey area we use
-# Load all the strata and just filter out the crap ones
-trawl_full <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.shp"))  %>% 
-  janitor::clean_names() %>% 
-  filter(strata >= 01010 ,
-         strata <= 01760,
-         strata != 1310,
-         strata != 1320,
-         strata != 1330,
-         strata != 1350,
-         strata != 1410,
-         strata != 1420,
-         strata != 1490) 
-
-
-# 3. DFO Survey Area
-dfo_path <- cs_path(box_group = "mills", subfolder = "Projects/DFO_survey_data/strata_shapefiles")
-dfo_area <- read_sf(str_c(dfo_path, "MaritimesRegionEcosystemAssessmentBoundary.shp"))
-
-
-# 4. Ecological Production Units
-epu_sf <- ecodata::epu_sf
-
-
-
 
 ####  Crop/Mask Functions  ####
 
-
-
+# 1.
 # Function to mask rasters using shape
 mask_shape <- function(in_ras, in_mask){# Check extents
   
@@ -164,7 +177,7 @@ mask_shape <- function(in_ras, in_mask){# Check extents
   in_ext <- extent(in_ras)
   if(in_ext@xmax > 180){
     out_extent <- in_ext - c(360, 360, 0, 0)
-    in_ras <- setExtent(in_ras, out_extent)
+    in_ras <- raster::setExtent(in_ras, out_extent)
   }
   
   # crop+mask
@@ -174,22 +187,63 @@ mask_shape <- function(in_ras, in_mask){# Check extents
 
 
 
-
+# 2.
 # Process means and date formats for a monthly raster stack
 stack_to_df <- function(month_stack, var_name){
   var_sym <- sym(var_name)
-  cellStats(month_stack, mean, na.rm = T) %>% 
-    as.data.frame() %>% 
-    rownames_to_column() %>% 
+  raster::cellStats(month_stack, "mean", na.rm = T) %>% 
+    raster::as.data.frame() %>% 
+    tibble::rownames_to_column() %>% 
     setNames(c("date", var_name)) %>% 
-    mutate(date = str_remove(date, "X"),
-           date = str_replace_all(date, "[.]", "-"),
-           date = as.Date(str_c(date, "-15")),
-           year = lubridate::year(date)) 
+    dplyr::mutate(
+      date = str_remove(date, "X"),
+      date = str_replace_all(date, "[.]", "-"),
+      date = as.Date(str_c(date, "-15")),
+      year = lubridate::year(date))
 }
 
 
 
+
+
+####### Singe Region Timeseries Debugging  ##########
+
+# This was isolated to do the full combined area on its own
+# Was running into namespace errors with the nesting of mask and stack steps
+
+# Run a single region and skip the preamble problems
+crsbnd_scenarios <- map(observed_var, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+crsbnd_percentiles <- map(observed_var, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+
+# # This step fails...
+# crsbnd_timeseries<- purrr::map(crsbnd_masked[1], .f = stack_to_df(month_stack = .x, var_name = var_select))
+
+# Works exactly fine outside of the function...
+scenarios_test <- map_dfr(crsbnd_masked, ~raster::cellStats(.x, "mean", na.rm = T) %>% 
+                 as.data.frame()%>% 
+                 tibble::rownames_to_column() %>% 
+                 setNames(c("date", var_select)) %>% 
+                 dplyr::mutate(
+                   date = str_remove(date, "X"),
+                   date = str_replace_all(date, "[.]", "-"),
+                   date = as.Date(str_c(date, "-15")),
+                   year = lubridate::year(date)),
+                 .id = "cmip_id") %>% 
+  mutate(Region = "Joint NMFS-DFO Survey Area")
+
+
+
+
+
+
+################################
+################################
+
+#################################
+####  Perform the Data Prep for All Regions  ####
+
+
+# 3. Function to combine steps and run for all areas
 # Mask and Stack together
 # put them together, set which regions are going down the pipeline here
 mask_and_stack <- function(masking_var, var_name){
@@ -197,26 +251,31 @@ mask_and_stack <- function(masking_var, var_name){
   # Mask and get timeseries for each area
   
   # Gulf of Maine
-  masked_gom   <- mask_shape(masking_var, trawl_gom)
-  masked_gom   <- stack_to_df(masked_gom, var_name)
+  masked_gom   <- mask_shape(in_ras = masking_var, in_mask =  trawl_gom)
+  masked_gom   <- stack_to_df(month_stack = masked_gom, var_name =  var_name)
   
   # Trawl Survey
-  masked_trawl <- mask_shape(masking_var, trawl_full)
-  masked_trawl <- stack_to_df(masked_trawl, var_name)
+  masked_trawl <- mask_shape(in_ras = masking_var, in_mask =  trawl_full)
+  masked_trawl <- stack_to_df(month_stack = masked_trawl,var_name =  var_name)
   
   # DFO Survey
-  masked_dfo   <- mask_shape(masking_var, dfo_area)
-  masked_dfo   <- stack_to_df(masked_dfo, var_name)
+  masked_dfo   <- mask_shape(in_ras = masking_var, in_mask =  dfo_area)
+  masked_dfo   <- stack_to_df(month_stack = masked_dfo, var_name = var_name)
   
   # EPUs
-  masked_gom_epu <- mask_shape(masking_var, epu_sf %>% filter(EPU == "GOM"))
-  masked_gom_epu <- stack_to_df(masked_gom_epu, var_name)
-  masked_gb_epu <- mask_shape(masking_var, epu_sf %>% filter(EPU == "GB"))
-  masked_gb_epu <- stack_to_df(masked_gb_epu, var_name)
-  masked_ss_epu <- mask_shape(masking_var, epu_sf %>% filter(EPU == "SS"))
-  masked_ss_epu <- stack_to_df(masked_ss_epu, var_name)
-  masked_mab_epu <- mask_shape(masking_var, epu_sf %>% filter(EPU == "MAB"))
-  masked_mab_epu <- stack_to_df(masked_mab_epu, var_name)
+  masked_gom_epu <- mask_shape(in_ras = masking_var, epu_sf %>% filter(EPU == "GOM"))
+  masked_gom_epu <- stack_to_df(month_stack = masked_gom_epu, var_name = var_name)
+  masked_gb_epu  <- mask_shape(in_ras = masking_var, epu_sf %>% filter(EPU == "GB"))
+  masked_gb_epu  <- stack_to_df(month_stack = masked_gb_epu, var_name = var_name)
+  masked_ss_epu  <- mask_shape(in_ras = masking_var, epu_sf %>% filter(EPU == "SS"))
+  masked_ss_epu  <- stack_to_df(month_stack = masked_ss_epu, var_name = var_name)
+  masked_mab_epu <- mask_shape(in_ras = masking_var, epu_sf %>% filter(EPU == "MAB"))
+  masked_mab_epu <- stack_to_df(month_stack = masked_mab_epu, var_name = var_name)
+  
+  
+  # FULL DFO + NMFS Region
+  masked_crsbnd <- mask_shape(masking_var, trawl_crsbnd)
+  masked_crsbnd <- stack_to_df(masked_mab_epu, var_name)
   
   
   # Put in list, combine
@@ -227,14 +286,14 @@ mask_and_stack <- function(masking_var, var_name){
     "EPU_GOM"                = masked_gom_epu,
     "EPU_GB"                 = masked_gb_epu,
     "EPU_SS"                 = masked_ss_epu,
-    "EPU_MAB"                = masked_mab_epu
+    "EPU_MAB"                = masked_mab_epu,
+    "combined_surveys"       = masked_crsbnd
   ), .id = "Region")
 }
 
 
 
 
-####  Perform the Data Prep  ####
 
 # Runs one variable at a time:
 masked_var <- map_dfr(
@@ -375,9 +434,9 @@ oisst_monthly <- stack(str_c(oisst_month_path, "oisst_monthly.nc"), varname = "s
 
 # Runs one variable at a time:
 masked_surface_sal <- mask_and_stack(masking_var = soda_ssal, var_name = "surf_sal")
-masked_bottom_sal <- mask_and_stack(masking_var = soda_bsal, var_name = "bot_sal")
+masked_bottom_sal  <- mask_and_stack(masking_var = soda_bsal, var_name = "bot_sal")
 masked_bottom_temp <- mask_and_stack(masking_var = soda_btemp, var_name = "bot_temp")
-masked_surf_temp <- mask_and_stack(masking_var = oisst_monthly, var_name = "surf_temp")
+masked_surf_temp   <- mask_and_stack(masking_var = oisst_monthly, var_name = "surf_temp")
 
 
 # make months standardize
