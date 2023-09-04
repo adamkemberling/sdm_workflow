@@ -29,7 +29,8 @@ oisst_path <- cs_path("res", "OISST/oisst_mainstays")
 soda_path  <- cs_path("RES_Data", "SODA")
 dfo_path <- cs_path(box_group = "mills", subfolder = "Projects/DFO_survey_data/strata_shapefiles")
 
-
+# Folder To Put Table
+jointsurvey_folder <- cs_path("res", str_c("CMIP6/", "SSP1_and_SSP5_JointSurvey_Timeseries/"))
 
 ####  Loading Resources  ####
 
@@ -223,17 +224,86 @@ crsbnd_tidy <- crsbnd_all %>%
   
 
 
-# Save the file
-
-# Folder To Put Table
-jointsurvey_folder <- cs_path("res", str_c("CMIP6/", "SSP1_and_SSP5_JointSurvey_Timeseries/"))
+#### Save the CMIP file  ####
 
 # File Name
 ts_name <- str_c(jointsurvey_folder, "CMIP6_jointsurvey_ensembles_bias_corrected.csv")
 print(str_c("Saving: ", ts_name))
 
-# Save it
+# Save the CMIP timeseries
 write_csv(x = crsbnd_tidy, file = ts_name)
+
+
+
+
+
+
+
+
+####  OISST/SODA Timeseries  ####
+
+# Mask the obersvational datasets as their own timeseries 
+# so we can compare quickly without masking etc.
+
+
+# SODA vars
+soda_ssal  <- stack(str_c(soda_path, "SODA_Salt_Red.nc")) # Has 50 depths, defaults to level 1 (surface)
+soda_bsal  <- stack(str_c(soda_path, "SODA_Salt_Red_bottomLayer.nc"))
+soda_btemp <- stack(str_c(soda_path, "SODA_Temp_Red_bottomLayer.nc"))
+
+# Load Monthly sst data
+oisst_month_path <- cs_path("res", "OISST/oisst_mainstays/monthly_averages")
+oisst_monthly <- stack(str_c(oisst_month_path, "oisst_monthly.nc"), varname = "sst")
+
+
+
+# Do the masking and timeseries conversion:
+oisst_masked <- mask_shape(in_ras = oisst_monthly, in_mask = trawl_crsbnd)
+oisst_ts <- stack_to_df(month_stack = oisst_masked, var_name = "surf_temp") #%>% mutate(dataset_id = "OISSTv2")
+soda_btemp_masked <- mask_shape(in_ras = soda_btemp, in_mask = trawl_crsbnd)
+soda_btemp_ts <- stack_to_df(month_stack = soda_btemp_masked, var_name = "bot_temp") #%>% mutate(dataset_id = "SODA")
+soda_ssal_masked <- mask_shape(in_ras = soda_ssal, in_mask = trawl_crsbnd)
+soda_ssal_ts <- stack_to_df(month_stack = soda_ssal_masked, var_name = "surf_sal") #%>% mutate(dataset_id = "SODA")
+soda_bsal_masked <- mask_shape(in_ras = soda_bsal, in_mask = trawl_crsbnd)
+soda_bsal_ts <- stack_to_df(month_stack = soda_bsal_masked, var_name = "bot_sal") #%>% mutate(dataset_id = "SODA")
+
+
+
+# make monthly averages have a standardized day value standardize
+tune_months <- function(x){
+  x  %>% 
+    mutate(month =  str_pad(lubridate::month(date), side = "left", pad = "0", width = 2), 
+           date = as.Date(str_c(year,"-", month, "-15")))
+}
+
+
+# Clean up the dates
+masked_stemp <- tune_months(oisst_ts)
+masked_ssal  <- tune_months(soda_ssal_ts)
+masked_bsal  <- tune_months(soda_bsal_ts)
+masked_btemp <- tune_months(soda_btemp_ts)
+
+
+
+# Combine and add metadata
+# "date" is going to need some tuning before join
+references_combined <- left_join(
+  masked_ssal, masked_stemp, join_by("date", "year", "month")) %>% 
+  left_join(masked_bsal,join_by("date", "year", "month")) %>% 
+  left_join(masked_btemp, join_by("date", "year", "month"))
+
+
+
+
+
+#### Save the Ref Data file  ####
+
+# File Name
+ts_name <- str_c(jointsurvey_folder, "jointsurvey_observed_climate.csv")
+print(str_c("Saving: ", ts_name))
+
+# Save the CMIP timeseries
+write_csv(x = references_combined, file = ts_name)
 
 
 

@@ -1,0 +1,128 @@
+---
+title: "Joint-Survey Area Departure from Modern Conditions"
+author: "Adam Kemberling"
+url: "https://github.com/adamkemberling"
+affiliation: "Gulf of Maine Research Institute"
+affiliation_url: "https://www.gmri.org"
+description: | 
+  What time horizons to SSP scenarios cross critical temperature thresholds?
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+execute: 
+  echo: false
+  warning: false
+  message: false
+  comment: ""
+  fig-align: center
+  fig-height: 6
+  fig-width: 8
+---
+
+
+```{r}
+#| label: packages
+#| include: false
+#| echo: false
+#| warning: false
+
+####  Packages  ####
+library(lubridate)
+library(here)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(gmRi)
+library(gt)
+library(patchwork)
+library(tidyverse)
+library(terra) #use terra to save with layer names
+library(tidyterra)
+library(ncdf4)
+library(rcartocolor)
+
+
+
+# Box paths
+res_path <- cs_path("res")
+oisst_path <- cs_path("res", "OISST/oisst_mainstays")
+cmip_path  <- cs_path("RES_Data", "CMIP6")
+soda_path  <- cs_path("RES_Data", "SODA")
+
+####  Functions  ####
+# source(here::here("CMIP6_processing/R/sdm_workflow_funs.R"))
+
+
+# Polygons for mapping
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+world_sf    <- ne_countries(returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+# set overall zoom for maps
+xlimz <- c(-76, -57)
+ylimz <- c(35, 48)
+
+```
+
+
+
+# About
+
+For communication around climate change impacts sometimes it is helpful to look at when temperatures are expected to cross critical thresholds. As an example: When temperatures are at 1C above current/recent conditions, this is the behavior we anticipate for our study species. 
+
+Another use case is for highlighting the differences between climate ensemble scenarios. Scenario X may have us crossing 2C as soon as 2060, where scenario Y has us limiting warming below 2C for the remainder of the decade. Using these milestones is a tool for communicating the different outcomes associated with or choices.
+
+Because our fishing community research and our cross-survey study area is so long, we have approached these milestones from the perspective of the entire survey area.
+
+
+```{r}
+# Folder That has joint survey area timeseries
+# data for four variables, monthly, for the whole NMFS/DFO survey area
+jointsurvey_folder <- cs_path("res", str_c("CMIP6/", "SSP1_and_SSP5_JointSurvey_Timeseries/"))
+
+# Load the timeseries for the CMIP scenario statistics
+jointsurvey_ssp <- read_csv(str_c(jointsurvey_folder, "CMIP6_jointsurvey_ensembles_bias_corrected.csv"))
+
+
+# Load the comparable timeseries of observed climate data
+jointsurvey_obs <- read_csv(str_c(jointsurvey_folder, "jointsurvey_observed_climate.csv"))
+```
+
+
+
+
+#### Scratch / Working here
+
+Going to need a couple things:
+ - baseline conditions over the same area (for comparison of temps)
+ - Some way to flag the earliest that the mean/5th/95th ranges cross thresholds
+ - Then maybe do something to acknowledge that the different regions within our study area are
+ going to be warming at different speeds
+ - Then, for fun
+
+```{r}
+
+
+# Get the average conditions over a modern baseline (what time unit?)
+modern_means <- reference_annual %>% 
+  filter(year %in% c(2010:2019)) %>% 
+  group_by(Region, variable) %>% 
+  summarise(
+    base_mean = mean(mean_val)
+  )
+
+# Get the distance from the baseline mean
+ssp_modern_comparison <- ssps_annual %>% 
+  filter(year>= 2000) %>% 
+  left_join(modern_means,  join_by("Region", "variable")) %>% 
+  mutate(
+    mean_anom = `Ensemble Mean` - base_mean,
+    lower_conf = `95th Percentile` - base_mean,
+    upper_conf = `95th Percentile` - base_mean,
+    decade = floor_decade(year)) 
+
+```
+

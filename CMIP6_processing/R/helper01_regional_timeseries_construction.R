@@ -236,10 +236,10 @@ scenarios_test <- map_dfr(crsbnd_masked, ~raster::cellStats(.x, "mean", na.rm = 
 
 
 
-################################
-################################
 
-#################################
+####____________________________##
+####____________________________##
+####____________________________##
 ####  Perform the Data Prep for All Regions  ####
 
 
@@ -410,9 +410,9 @@ write_csv(x = var_combined, file = ts_name)
 # Prepare the reference datasets the same way so they can be compared against them
 
 
-####  Reference Datasets  ####
+####  OISST/SODA Timeseries  ####
 
-# Mask the obersvarional datasets as their own timeseries 
+# Mask the obersvational datasets as their own timeseries 
 # so we can compare quickly without masking etc.
 
 
@@ -439,7 +439,7 @@ masked_bottom_temp <- mask_and_stack(masking_var = soda_btemp, var_name = "bot_t
 masked_surf_temp   <- mask_and_stack(masking_var = oisst_monthly, var_name = "surf_temp")
 
 
-# make months standardize
+# make months standardized for datetime joining
 tune_months <- function(x){
   x  %>% 
     mutate(month =  str_pad(month(date), side = "left", pad = "0", width = 2), 
