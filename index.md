@@ -11,3 +11,6 @@
 [4. Bias-Corrected Time Lines of Study Regions](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/SSP5_85_Bias_Corrected_Trajectories.html)
 
 [5. Checking Bias-Corrected Data and Verifying VAST Model Inputs/Outputs](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/Ensemble_Review.html)
+
+
+[6. Reviewing Temperature Milestones for the Entire DFO+NMFS Study Area](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/Joint_Survey_Horizons.html)
