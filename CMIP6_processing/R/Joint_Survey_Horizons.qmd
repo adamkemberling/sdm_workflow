@@ -125,7 +125,9 @@ js_obs <- read_csv(str_c(jointsurvey_folder, "jointsurvey_observed_climate.csv")
 ```
 
 
+### Average Conditions from Last Decade
 
+Should add a table or text of what the average conditions were...
 
 
 ```{r}
@@ -220,13 +222,71 @@ find_crossing = function(df, col_x, date_col, threshold){
 ```
  
 
+# Changes in Time
+
+::: {.panel-tabset}
+
+## Sea Surface Temperature
 
 
 ```{r}
 
+modern_comparison_annual %>% 
+  filter(#scenario == "SSP1_26",
+         var == "surf_temp",
+         ensemble_statistic == "Ensemble Mean",
+         year > 1999) %>% 
+  ggplot(aes(year, clim_anom)) +
+  geom_line(linewidth = 0.8, aes(color = scenario)) +
+  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
+  theme_gmri() +
+  labs(
+    title = "Sea Surface Temperatures Under SSP Scenarios", 
+    y = "Departure From Modern Conditions", color = "")
+```
+
+
+## Sea Floor Temperature
+
+
+
+```{r}
+
+modern_comparison_annual %>% 
+  filter(#scenario == "SSP1_26",
+         var == "bot_temp",
+         ensemble_statistic == "Ensemble Mean",
+         year > 1999) %>% 
+  ggplot(aes(year, clim_anom)) +
+  geom_line(linewidth = 0.8, aes(color = scenario)) +
+  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
+  theme_gmri() +
+  labs(
+    title = "Sea Floor Temperatures Under SSP Scenarios", 
+    y = "Departure From Modern Conditions", color = "")
+```
+
+
+:::
+
+
+
+# Contrasting Two SSP Scenarios
+
+
+
+
+
+```{r}
+#| label: value-box-function
+
 # Make a function to populate a card for us
 thresh_card <- function(ssp = "SSP1_26", clim_var = "surv_temp", 
-                        modern_thresh = 0.5, bg_class = NULL, vb_theme = NULL, ikon = "water"){
+                        modern_thresh = 0.5, bg_class = NULL, vb_theme = NULL, ikon = "water", vb_style = NULL){
   
   # 5th Percentile
   t1 <- modern_comparison_annual %>% 
@@ -268,15 +328,14 @@ thresh_card <- function(ssp = "SSP1_26", clim_var = "surv_temp",
     p("As soon as (95th Percentile): ", strong(t3)),
     p("As late as (5th Percentile): ", strong(t1)),
     class = bg_class,
-    theme = vb_theme
+    theme = vb_theme,
+    style = vb_style
   )
   
 }
 ```
 
 
-# Contrasting Two SSP Scenarios
-
 
 ::: {.panel-tabset}
 
@@ -285,12 +344,22 @@ thresh_card <- function(ssp = "SSP1_26", clim_var = "surv_temp",
 
 ```{r}
 # SSP1: 2.6 SST
-thresh_card(ssp = "SSP1_26", clim_var = "surf_temp", modern_thresh = 0.5, ikon = "droplet")
+thresh_card(
+  ssp = "SSP1_26", 
+  clim_var = "surf_temp", 
+  modern_thresh = 0.5, 
+  ikon = "droplet", 
+  vb_style = 'background-color: #00608A!important;')
 ```
 
 ```{r}
 # SSP5 8.5 BT
-thresh_card(ssp = "SSP5_85", clim_var = "surf_temp", modern_thresh = 0.5, ikon = "droplet", bg_class = "bg-danger")
+thresh_card(
+  ssp = "SSP5_85", 
+  clim_var = "surf_temp", 
+  modern_thresh = 0.5, 
+  ikon = "droplet", 
+  vb_style = 'background-color: #EA4F12!important;')
 ```
 
 
@@ -298,67 +367,25 @@ thresh_card(ssp = "SSP5_85", clim_var = "surf_temp", modern_thresh = 0.5, ikon =
 
 ```{r}
 # SSP1: 2.6 SST
-thresh_card(ssp = "SSP1_26", clim_var = "bot_temp", modern_thresh = 0.5)
+thresh_card(
+  ssp = "SSP1_26", 
+  clim_var = "bot_temp", 
+  modern_thresh = 0.5, 
+  vb_style = 'background-color: #00608A!important;')
 ```
 
 ```{r}
 # SSP5 8.5 BT
-thresh_card(ssp = "SSP5_85", clim_var = "bot_temp", modern_thresh = 0.5, bg_class = "bg-danger")
+thresh_card(
+  ssp = "SSP5_85", 
+  clim_var = "bot_temp", 
+  modern_thresh = 0.5, 
+  vb_style = 'background-color: #EA4F12!important;')
 ```
 
   
 :::
 
-# Changes in Time
-
-::: {.panel-tabset}
-
-## Sea Surface Temperature
-
-
-```{r}
-
-modern_comparison_annual %>% 
-  filter(#scenario == "SSP1_26",
-         var == "surf_temp",
-         ensemble_statistic == "Ensemble Mean",
-         year > 1999) %>% 
-  ggplot(aes(year, clim_anom)) +
-  geom_line(linewidth = 0.8, aes(color = scenario)) +
-  geomtextpath::geom_texthline(yintercept = 0, label = "2020-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
-  theme_gmri() +
-  labs(
-    title = "Sea Surface Temperatures Under SSP Scenarios", 
-    y = "Departure From Modern Conditions", color = "")
-```
-
-
-## Sea Floor Temperature
-
-
-
-```{r}
-
-modern_comparison_annual %>% 
-  filter(#scenario == "SSP1_26",
-         var == "bot_temp",
-         ensemble_statistic == "Ensemble Mean",
-         year > 1999) %>% 
-  ggplot(aes(year, clim_anom)) +
-  geom_line(linewidth = 0.8, aes(color = scenario)) +
-  geomtextpath::geom_texthline(yintercept = 0, label = "2020-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
-  scale_color_gmri() +
-  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
-  theme_gmri() +
-  labs(
-    title = "Sea Floor Temperatures Under SSP Scenarios", 
-    y = "Departure From Modern Conditions", color = "")
-```
-
-
-:::
 
 
 
