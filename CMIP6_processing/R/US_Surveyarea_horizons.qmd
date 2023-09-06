@@ -1,0 +1,738 @@
+---
+title: "NMFS Survey Area Climate Scenario Horizons"
+author: "Adam Kemberling"
+url: "https://github.com/adamkemberling"
+affiliation: "Gulf of Maine Research Institute"
+affiliation_url: "https://www.gmri.org"
+description: | 
+  What time horizons to SSP scenarios cross critical temperature thresholds?
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+execute: 
+  echo: false
+  warning: false
+  message: false
+  comment: ""
+  fig-align: center
+  fig-height: 6
+  fig-width: 8
+---
+
+
+```{r}
+#| label: packages
+#| include: false
+#| echo: false
+#| warning: false
+
+####  Packages  ####
+library(lubridate)
+library(here)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(gmRi)
+library(gt)
+library(patchwork)
+library(tidyverse)
+library(rcartocolor)
+library(bslib)
+library(bsicons)
+library(shiny)
+library(geomtextpath)
+
+
+# Load fonts
+extrafont::loadfonts(quiet = TRUE)
+
+
+# Box paths
+res_path <- cs_path("res")
+oisst_path <- cs_path("res", "OISST/oisst_mainstays")
+cmip_path  <- cs_path("RES_Data", "CMIP6")
+soda_path  <- cs_path("RES_Data", "SODA")
+
+# Folder That has joint survey area timeseries
+# data for four variables, monthly, for the whole NMFS/DFO survey area
+jointsurvey_folder <- cs_path("res", str_c("CMIP6/", "SSP1_and_SSP5_JointSurvey_Timeseries/"))
+
+
+# Polygons for mapping
+# NMFS Survey Area
+# 1. Gulf of Maine
+trawl_regions <- get_timeseries_paths(
+  "nmfs_trawl_regions", 
+  box_location = "cloudstorage")
+trawl_gom <- read_sf(trawl_regions$gulf_of_maine$shape_path)
+
+
+# 2. The Full survey area we use
+# Load all the strata and just filter out the crap ones
+trawl_full <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.shp"))  %>% 
+  janitor::clean_names() %>% 
+  filter(strata >= 01010 ,
+         strata <= 01760,
+         strata != 1310,
+         strata != 1320,
+         strata != 1330,
+         strata != 1350,
+         strata != 1410,
+         strata != 1420,
+         strata != 1490) 
+
+
+# EPUs
+ecodata_epu <- ecodata::epu_sf
+
+
+# rnaturalearth polygons
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+world_sf    <- ne_countries(returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+# set overall zoom for maps
+xlimz <- c(-76, -57)
+ylimz <- c(35, 48)
+
+```
+
+
+```{r}
+#| label: theme-setup
+#| echo: false
+#| results: asis
+
+# Use GMRI style
+use_gmri_style_rmd()
+```
+
+
+# About
+
+For communication around climate change impacts sometimes it is helpful to look at when temperatures are expected to cross critical thresholds. As an example: When temperatures are at 1C above current/recent conditions, this is the behavior we anticipate for our study species. 
+
+Another use case is for highlighting the differences between climate ensemble scenarios. Scenario X may have us crossing 2C as soon as 2060, where scenario Y has us limiting warming below 2C for the remainder of the decade. Using these milestones is a tool for communicating the different outcomes associated with or choices.
+
+Because our fishing community research and our cross-survey study area is so long, we have approached these milestones from the perspective of the entire survey area.
+
+### NMFS Survey Area
+
+In this document we use the following area for expectation setting with these two SSP scenarios. 
+
+```{r}
+ ggplot() +
+  geom_sf(data = new_england, size = 0.3) +
+  geom_sf(data = canada, size = 0.3) +
+  geom_sf(data = greenland, size = 0.3) +
+  geom_sf(data = trawl_full, fill = gmri_cols("blue"), alpha = 0.6, color = "black") +
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(title.position = "top", title.hjust = 0.5)) +
+  labs(color = "", 
+       fill = "") +
+  theme_bw() +
+  coord_sf(xlim = xlimz, ylim = ylimz) +
+  map_theme()
+```
+
+
+
+```{r}
+####  Load Bias Corrected Models Datasets
+
+# Monthly averages have been prepared in: 
+# helper01_regional_timeseries_construction.R
+
+
+# the variables
+var_list <- c(
+  "Surface Temperature" = "surf_temp", 
+  "Bottom Temperature"  = "bot_temp", 
+  "Surface Salinity"    = "surf_sal", 
+  "Bottom Salinity"     = "bot_sal"
+  )
+
+
+# Folders to the timeseries
+ssp1_folder <- cs_path("res", str_c("CMIP6/SSP1_26/BiasCorrected/TimeseriesData/"))
+ssp5_folder <- cs_path("res", str_c("CMIP6/SSP5_85/BiasCorrected/TimeseriesData/"))
+
+
+
+# Load the timeseries
+
+# SSP1
+ssp1_ts <- imap(var_list, function(x, y){
+  
+  # For name replacement
+  var_sym <- sym(x)
+  
+  # Full file Name
+  table_name <- str_c(ssp1_folder, "CMIP6_bias_corrected_regional_", x, ".csv")
+  read_csv(table_name, col_types = cols()) %>% 
+    mutate(variable = y) %>% 
+    rename(bias_corrected_value = {{var_sym}})
+})
+
+
+# Again for SSP5
+ssp5_ts <- imap(var_list, function(x, y){
+  
+  # For name replacement
+  var_sym <- sym(x)
+  
+  # Full file Name
+  table_name <- str_c(ssp5_folder, "CMIP6_bias_corrected_regional_", x, ".csv")
+  read_csv(table_name, col_types = cols()) %>% 
+    mutate(variable = y) %>% 
+    rename(bias_corrected_value = {{var_sym}})
+})
+
+```
+
+
+##### Monthly Averaging
+
+```{r}
+#| label: convert-ensembles-to-monthly
+
+# Make monthly Averages
+
+
+# make the individual timelines annual/monthly timelines
+ssp1_monthly <- map(ssp1_ts, function(x){
+  x %>% 
+    mutate(month = month(date)) %>% 
+    group_by(cmip_id, data_source, ensemble_statistic, Region, variable, year, month) %>% 
+    summarise(bias_corrected_value = mean(bias_corrected_value, na.rm = T),
+              .groups = "drop")
+  
+  
+})
+
+
+
+# make the individual timelines annual/monthly timelines
+ssp5_monthly <- map(ssp5_ts, function(x){
+  x %>% 
+    mutate(month = month(date)) %>% 
+    group_by(cmip_id, data_source, ensemble_statistic, Region, variable, year, month) %>% 
+    summarise(bias_corrected_value = mean(bias_corrected_value, na.rm = T),
+              .groups = "drop")
+  
+  
+})
+```
+
+##### Remove Individual Model Runs
+
+In this step we are streamlining the data to just the ensemble mean/5th/95th percentiles instead of keeping the individual model runs along for the ride.
+
+
+```{r}
+#| label: drop-individual-ssp-runs
+
+
+####  Trim to just ensemble data  ####
+
+
+# We can just combine the different variables and drop the individual runs here
+ssp1_26 <- ssp1_monthly %>% 
+  bind_rows() %>% 
+  filter(!str_detect(ensemble_statistic, "Individual")) %>% 
+  select(-cmip_id) %>% 
+  mutate(scenario = "SSP1: 2.6",
+         date = as.Date(str_c(year,"-", month, "-15"))) %>% 
+  pivot_wider(names_from = "ensemble_statistic", values_from = "bias_corrected_value")
+
+ssp5_85 <- ssp5_monthly %>% 
+  bind_rows() %>% 
+  filter(!str_detect(ensemble_statistic, "Individual")) %>% 
+  select(-cmip_id) %>% 
+  mutate(scenario = "SSP5: 8.5",
+         date = as.Date(str_c(year,"-", month, "-15"))) %>% 
+  pivot_wider(names_from = "ensemble_statistic", values_from = "bias_corrected_value")
+
+
+# Combnine Both and filter a little more for remaining plots
+ssp_both <- bind_rows(ssp1_26, ssp5_85) %>% 
+  filter(str_detect(Region, "US|EPU"))  %>% 
+  mutate(Region = factor(
+    Region, 
+    levels = c("US Survey Area", "EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB")))
+```
+
+### Average Conditions from Last Decade
+
+Should add a table or text of what the average conditions were...
+
+
+```{r}
+#| label: load-observational-data-timeseries
+
+
+# Monthly averages have been prepared in: 
+# helper01_regional_timeseries_construction.R
+
+references_combined <- read_csv(
+  file = str_c(res_path, "CMIP6/Bias_Correction_Checking/bias_correction_reference_dataset_monthly_regional_means.csv"),
+  col_types = cols(
+  Region = col_character(),
+  date = col_date(format = ""),
+  surf_sal = col_double(),
+  year = col_double(),
+  month = col_character(),
+  surf_temp = col_double(),
+  bot_sal = col_double(),
+  bot_temp = col_double()
+))
+
+
+# Trim to certain areas
+references_combined <- references_combined %>% 
+  filter(str_detect(Region, "US|EPU")) %>% 
+  mutate(Region = factor(
+    Region, 
+    levels = c("US Survey Area", "EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB")))
+```
+
+
+```{r}
+#| label: yearly-diff-from-modern-climate
+
+# Get the average conditions over a modern baseline (what time unit?)
+modern_climate_annual <- references_combined %>%
+  filter(year %in% c(2010:2019)) %>%
+  group_by(Region) %>% 
+  summarise(across(.cols = c(surf_temp, bot_temp, surf_sal, bot_sal), mean)) %>%
+  pivot_longer(cols = -Region, names_to = "var", values_to = "modern_clim")
+
+
+# Get the distance from the baseline mean
+modern_comparison_annual <- ssp_both %>%
+  # filter(year>= 2000) %>%
+  pivot_longer(cols = c(`5th Percentile`, `Ensemble Mean`, `95th Percentile`), names_to = "ensemble_statistic", values_to = "ssp_val") %>% 
+  mutate(var = case_when(
+    variable == "Surface Temperature" ~ "surf_temp",
+    variable == "Bottom Temperature" ~ "bot_temp",
+    variable == "Surface Salinity" ~ "surf_sal",
+    variable == "Bottom Salinity" ~ "bot_sal")) %>% 
+  group_by(Region, scenario, ensemble_statistic, year, var) %>%
+  summarise(
+    ssp_val = mean(ssp_val, na.rm = T),
+    .groups = "drop") %>%
+  drop_na() %>%
+  arrange(year) %>%
+ left_join(modern_climate_annual, by = join_by(var, Region)) %>%
+  mutate(
+    clim_anom = ssp_val - modern_clim,
+    decade = floor_decade(year))
+
+
+
+
+
+
+```
+
+ 
+```{r}
+#| label: monthly-diff-from-modern-climate
+
+
+# Get the average conditions over a modern baseline (what time unit?)
+modern_climate_monthly <- references_combined %>% 
+  filter(year %in% c(2010:2019)) %>% 
+  group_by(Region, month) %>% 
+  summarise(across(.cols = c(surf_temp, bot_temp, surf_sal, bot_sal), mean), .groups = "drop") %>%
+  pivot_longer(cols = -c(Region, month), names_to = "var", values_to = "modern_clim") %>% 
+  mutate(month = as.numeric(month))
+
+
+
+# Get the distance from the baseline mean
+modern_comparison_monthly <- ssp_both %>%
+  # filter(year>= 2000) %>%
+  pivot_longer(cols = c(`5th Percentile`, `Ensemble Mean`, `95th Percentile`), names_to = "ensemble_statistic", values_to = "ssp_val") %>% 
+  mutate(var = case_when(
+    variable == "Surface Temperature" ~ "surf_temp",
+    variable == "Bottom Temperature" ~ "bot_temp",
+    variable == "Surface Salinity" ~ "surf_sal",
+    variable == "Bottom Salinity" ~ "bot_sal")) %>% 
+  drop_na() %>% arrange(date) %>% 
+  mutate(month = lubridate::month(date)) %>% 
+  left_join(modern_climate_monthly, by = join_by(month, var, Region)) %>% 
+  mutate(
+    clim_anom = ssp_val - modern_clim,
+    decade = floor_decade(year)) 
+
+
+
+```
+ 
+
+
+```{r}
+#| label: find-threshold-cross-function
+
+# Function to check a column is over some threshold, arranged by some other column for time
+find_crossing <- function(df, col_x, date_col, threshold){
+  col_x <- sym(col_x)
+  date_col <- sym(date_col)
+  
+  # Are any over?
+  all_vals <- df %>% pull({{col_x}})
+  any_t <- any(all_vals > threshold)
+  if(any_t == FALSE){return("Never")}
+  
+  # If so then find it
+  return_value = df %>%
+    arrange({{date_col}}) %>%
+    filter({{col_x}} > threshold) %>%
+    slice(1) %>% 
+    pull(year)
+  return(return_value)
+}
+
+# # Double check that this works
+# # has different scenario values than the jointsurvey quarto
+# modern_comparison_annual %>% 
+#     filter(
+#       Region == "US Survey Area",
+#       scenario == "SSP5: 8.5",
+#       ensemble_statistic == "5th Percentile", 
+#       var == "surf_temp") %>% 
+#     find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year") 
+
+```
+ 
+
+# Changes in Time
+
+::: {.panel-tabset}
+
+## Sea Surface Temperature
+
+
+```{r}
+
+modern_comparison_annual %>% 
+  filter(
+    Region == "US Survey Area",
+    var == "surf_temp",
+    ensemble_statistic == "Ensemble Mean",
+    year > 1999) %>% 
+  ggplot(aes(year, clim_anom)) +
+  geom_line(linewidth = 0.8, aes(color = scenario)) +
+  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Real-World Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
+  theme_gmri() +
+  labs(
+    title = "Sea Surface Temperatures Under SSP Scenarios", 
+    y = "Departure From Modern Conditions", color = "")
+```
+
+
+## Sea Floor Temperature
+
+
+
+```{r}
+
+modern_comparison_annual %>% 
+  filter(
+    Region == "US Survey Area",
+    var == "bot_temp",
+    ensemble_statistic == "Ensemble Mean",
+    year > 1999) %>% 
+  ggplot(aes(year, clim_anom)) +
+  geom_line(linewidth = 0.8, aes(color = scenario)) +
+  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Real-World Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
+  theme_gmri() +
+  labs(
+    title = "Sea Floor Temperatures Under SSP Scenarios", 
+    y = "Departure From Modern Conditions", color = "")
+```
+
+
+## Surface Salinity
+
+```{r}
+modern_comparison_annual %>% 
+  filter(
+    Region == "US Survey Area",
+    var == "surf_sal",
+    ensemble_statistic == "Ensemble Mean",
+    year > 1999) %>% 
+  ggplot(aes(year, clim_anom)) +
+  geom_line(linewidth = 0.8, aes(color = scenario)) +
+  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Real-World Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = -1.5) +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_number()) +
+  theme_gmri() +
+  labs(
+    title = "Sea Surface Salinity Under SSP Scenarios", 
+    y = "Departure From Modern Conditions", color = "")
+```
+
+## Bottom Salinity
+
+```{r}
+modern_comparison_annual %>% 
+  filter(
+    Region == "US Survey Area",
+    var == "bot_sal",
+    ensemble_statistic == "Ensemble Mean",
+    year > 1999) %>% 
+  ggplot(aes(year, clim_anom)) +
+  geom_line(linewidth = 0.8, aes(color = scenario)) +
+  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Real-World Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
+  scale_color_gmri() +
+  scale_y_continuous(labels = label_number()) +
+  theme_gmri() +
+  labs(
+    title = "Sea Bottom Salinity Under SSP Scenarios", 
+    y = "Departure From Modern Conditions", color = "")
+```
+
+
+
+:::
+
+
+
+# Contrasting Two SSP Scenarios
+
+
+
+
+
+```{r}
+#| label: value-box-function
+
+# Make a function to populate a card for us
+thresh_card <- function(ssp = "SSP1: 2.6", clim_var = "surv_temp", 
+                        modern_thresh = 0.5, bg_class = NULL, vb_theme = NULL, ikon = "water", vb_style = NULL){
+  
+  # 5th Percentile
+  t1 <- modern_comparison_annual %>% 
+    filter(
+      Region == "US Survey Area",
+      scenario == ssp,
+      ensemble_statistic == "5th Percentile", 
+      var == clim_var) %>% 
+    find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year") 
+  
+  # Mean
+  t2 <- modern_comparison_annual %>% 
+    filter(
+      Region == "US Survey Area",
+      scenario == ssp,
+      ensemble_statistic == "Ensemble Mean", 
+      var == clim_var) %>% 
+    find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year") 
+  
+  # 95th Percentile 2000
+  t3 <- modern_comparison_annual %>% 
+    filter(
+      Region == "US Survey Area",
+      scenario == ssp,
+      ensemble_statistic == "95th Percentile", 
+      var == clim_var) %>% 
+    find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year")
+  
+  
+  
+  # text tidying
+  ssp_long <- ssp
+  var_long <- ifelse(clim_var == "surf_temp", "Sea Surface Temperatures", "Sea Floor Temperatures")
+  
+  # Card construction
+  bslib::value_box(
+    title = ssp_long,
+    value = str_c(var_long, " +", modern_thresh, "\u00b0C Above 2010-2019 Averages"),
+    showcase = bs_icon(ikon),
+    br(),
+    p("Climate ensemble mean estimates exceed +", modern_thresh, "\u00b0C in", strong(t2)),
+    br(),
+    p("As soon as (95th Percentile): ", strong(t3)),
+    p("As late as (5th Percentile): ", strong(t1)),
+    class = bg_class,
+    theme = vb_theme,
+    style = vb_style
+  )
+  
+}
+```
+
+
+
+::: {.panel-tabset}
+
+
+## Sea Surface Temperature
+
+```{r}
+# SSP1: 2.6 SST
+thresh_card(
+  ssp = "SSP1: 2.6", 
+  clim_var = "surf_temp", 
+  modern_thresh = 0.5, 
+  ikon = "droplet", 
+  vb_style = 'background-color: #00608A!important;')
+```
+
+```{r}
+# SSP5 8.5 BT
+thresh_card(
+  ssp = "SSP5: 8.5", 
+  clim_var = "surf_temp", 
+  modern_thresh = 0.5, 
+  ikon = "droplet", 
+  vb_style = 'background-color: #EA4F12!important;')
+```
+
+
+## Sea Floor Temperature
+
+```{r}
+# SSP1: 2.6 SST
+thresh_card(
+  ssp = "SSP1: 2.6", 
+  clim_var = "bot_temp", 
+  modern_thresh = 0.5, 
+  vb_style = 'background-color: #00608A!important;')
+```
+
+```{r}
+# SSP5 8.5 BT
+thresh_card(
+  ssp = "SSP5: 8.5", 
+  clim_var = "bot_temp", 
+  modern_thresh = 0.5, 
+  vb_style = 'background-color: #EA4F12!important;')
+```
+
+  
+:::
+
+
+
+
+# Important Junctions for SSP5 8.5
+
+Of these two SSP scenario ensembles, SSP5 8.5 is the only one that continues to exceed increasing temperature milestones. The below table shows the year in which mean temperatures from each of the ensembles crossing temperature milestones above the average conditions of the last decade.
+
+```{r}
+
+
+# Check SSP5
+ssp1_thresh_check <- map_dfr(c(0.5,1,1.5,2,3,4), function(.x){
+    
+   # Check sst
+   sst_thresh <- modern_comparison_annual %>% 
+        filter(
+          Region == "US Survey Area",
+          scenario == "SSP1: 2.6",
+          ensemble_statistic == "Ensemble Mean", 
+          var == "surf_temp") %>% 
+        find_crossing(threshold = .x, 
+                      col_x = "clim_anom", 
+                      date_col = "year") %>% 
+     as.character() 
+    
+    # Check BT
+    bt_thresh <- modern_comparison_annual %>% 
+        filter(
+          Region == "US Survey Area",
+          scenario == "SSP1: 2.6",
+          ensemble_statistic == "Ensemble Mean", 
+          var == "bot_temp") %>% 
+        find_crossing(threshold = .x, 
+                      col_x = "clim_anom", 
+                      date_col = "year") %>% 
+     as.character()
+    
+    # Store it
+    data.frame("threshold" = .x,
+               "sst" = sst_thresh,
+               "bt" = bt_thresh)
+
+})
+  
+
+# Check SSP5
+ssp5_thresh_check <- map_dfr(c(0.5,1,1.5,2,3,4), function(.x){
+    
+   # Check sst
+   sst_thresh <- modern_comparison_annual %>% 
+        filter(
+          Region == "US Survey Area",
+          scenario == "SSP5: 8.5",
+          ensemble_statistic == "Ensemble Mean", 
+          var == "surf_temp") %>% 
+        find_crossing(threshold = .x, 
+                      col_x = "clim_anom", 
+                      date_col = "year") %>% 
+     as.character()
+    
+    # Check BT
+    bt_thresh <- modern_comparison_annual %>% 
+        filter(
+          Region == "US Survey Area",
+          scenario == "SSP5: 8.5",
+          ensemble_statistic == "Ensemble Mean", 
+          var == "bot_temp") %>% 
+        find_crossing(threshold = .x, 
+                      col_x = "clim_anom", 
+                      date_col = "year") %>% 
+     as.character()
+    
+    # Store it
+    data.frame("threshold" = .x,
+               "sst" = sst_thresh,
+               "bt" = bt_thresh)
+
+})
+  
+
+
+
+
+# Combine for gt
+bind_rows(
+  list("SSP1: 2.6" = ssp1_thresh_check, "SSP5: 8.5" = ssp5_thresh_check), .id = "SSP") %>% 
+  mutate(sst = ifelse(sst == "Never", "-", sst),
+         bt = ifelse(bt == "Never", "-", bt)) %>% 
+  group_by(SSP) %>% 
+  gt() %>% 
+  cols_label(
+    "SSP" = "SSP Scenario",
+    "threshold" = "Temperature Threshold \u00b0C",
+    "sst" = "Sea Surface Temperatures",
+    "bt" = "Sea Floor Temperatures") %>% 
+  tab_header(title = "Oceanic Condition Crossing Points Under SSP Scenario Ensembles",
+             subtitle = "Thresholds set against ten-year (2010-2019) average annual conditions for NMFS survey area") %>% 
+   opt_table_font(
+    font = "raleway"
+      #list(google_font(name = "raleway"))
+      )
+
+
+```
+
+ 
+ 
+```{r}
+#| label: add-footer
+#| results: asis
+
+# Use GMRI style
+gmRi::insert_gmri_footer()
+```
