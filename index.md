@@ -15,3 +15,5 @@
 [6. NMFS Study Area SSP Temperature Horizons](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/US_Surveyarea_horizons.html)
 
 [7. Reviewing Temperature Milestones for the Entire DFO+NMFS Study Area](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/Joint_Survey_Horizons.html)
+
+[8. Reviewing Temperature Milestones for the Entire NMFS Trawl Survey Study Area](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/US_Surveyarea_horizons.html)
