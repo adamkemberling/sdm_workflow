@@ -81,6 +81,8 @@ ylimz <- c(35, 48)
 
 # Use GMRI style
 use_gmri_style_rmd()
+
+
 ```
 
 
@@ -157,7 +159,10 @@ modern_comparison_annual <- js_ssp %>%
   left_join(modern_climate_annual, by = join_by(var, region)) %>% 
   mutate(
     clim_anom = ssp_val - modern_clim,
-    decade = floor_decade(year)) 
+    decade = floor_decade(year)) %>% 
+  group_by(scenario, var, ensemble_statistic) %>% 
+  mutate(anom_ma = zoo::rollapply(clim_anom, 5, mean, align='center',fill=NA)) %>% 
+  ungroup() 
 
 
 
@@ -201,13 +206,15 @@ modern_comparison_monthly <- js_ssp %>%
 #| label: find-threshold-cross-function
 
 # Function to check a column is over some threshold, arranged by some other column for time
-find_crossing = function(df, col_x, date_col, threshold){
+find_crossing <- function(df, col_x, date_col, threshold){
+  
+  
   col_x <- sym(col_x)
   date_col <- sym(date_col)
   
   # Are any over?
   all_vals <- df %>% pull({{col_x}})
-  any_t <- any(all_vals > threshold)
+  any_t <- any(all_vals > threshold, na.rm = T)
   if(any_t == FALSE){return("Never")}
   
   # If so then find it
@@ -231,14 +238,25 @@ find_crossing = function(df, col_x, date_col, threshold){
 
 ```{r}
 
+# Add:
+# 5-year smooth
+# points for years
+# horizontal lines at thresholds
+
 modern_comparison_annual %>% 
   filter(#scenario == "SSP1_26",
          var == "surf_temp",
          ensemble_statistic == "Ensemble Mean",
          year > 1999) %>% 
   ggplot(aes(year, clim_anom)) +
-  geom_line(linewidth = 0.8, aes(color = scenario)) +
-  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
+  geom_labelhline(yintercept = 0.5, label = "+ 0.5\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 1, label = "+ 1\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 2, label = "+ 2\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 3, label = "+ 3\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 4, label = "+ 4\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_point(size = 0.8, aes(color = scenario)) +
+  geom_line(aes(y = anom_ma, color = scenario), linewidth = 1) +
+  geom_texthline(yintercept = 0, label = "2010-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
   scale_color_gmri() +
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
   theme_gmri() +
@@ -260,8 +278,14 @@ modern_comparison_annual %>%
          ensemble_statistic == "Ensemble Mean",
          year > 1999) %>% 
   ggplot(aes(year, clim_anom)) +
-  geom_line(linewidth = 0.8, aes(color = scenario)) +
-  geomtextpath::geom_texthline(yintercept = 0, label = "2010-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
+  geom_labelhline(yintercept = 0.5, label = "+ 0.5\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 1, label = "+ 1\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 2, label = "+ 2\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 3, label = "+ 3\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_labelhline(yintercept = 4, label = "+ 4\u00b0C", linetype = 3, linewidth = 0.5, hjust = .1) +
+  geom_point(size = 0.8, aes(color = scenario)) +
+  geom_line(aes(y = anom_ma, color = scenario), linewidth = 1) +
+  geom_texthline(yintercept = 0, label = "2010-2019 Average Conditions", linewidth = 1, size = 4, fontface = "bold", hjust = 0.75, vjust = 1.5) +
   scale_color_gmri() +
   scale_y_continuous(labels = label_number(suffix = "\u00b0C")) +
   theme_gmri() +
@@ -285,8 +309,14 @@ modern_comparison_annual %>%
 #| label: value-box-function
 
 # Make a function to populate a card for us
-thresh_card <- function(ssp = "SSP1_26", clim_var = "surv_temp", 
-                        modern_thresh = 0.5, bg_class = NULL, vb_theme = NULL, ikon = "water", vb_style = NULL){
+thresh_card <- function(
+    ssp = "SSP1_26", 
+    clim_var = "surv_temp", 
+    modern_thresh = 0.5, 
+    bg_class = NULL, 
+    vb_theme = NULL, 
+    ikon = "water", 
+    vb_style = NULL){
   
   # 5th Percentile
   t1 <- modern_comparison_annual %>% 
@@ -294,7 +324,8 @@ thresh_card <- function(ssp = "SSP1_26", clim_var = "surv_temp",
       scenario == ssp,
       ensemble_statistic == "5th Percentile", 
       var == clim_var) %>% 
-    find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year") 
+    find_crossing(., threshold = modern_thresh, col_x = "anom_ma", date_col = "year") 
+  #return(t1)
   
   # Mean
   t2 <- modern_comparison_annual %>% 
@@ -302,7 +333,7 @@ thresh_card <- function(ssp = "SSP1_26", clim_var = "surv_temp",
       scenario == ssp,
       ensemble_statistic == "Ensemble Mean", 
       var == clim_var) %>% 
-    find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year") 
+    find_crossing(., threshold = modern_thresh, col_x = "anom_ma", date_col = "year") 
   
   # 95th Percentile 2000
   t3 <- modern_comparison_annual %>% 
@@ -310,7 +341,7 @@ thresh_card <- function(ssp = "SSP1_26", clim_var = "surv_temp",
       scenario == ssp,
       ensemble_statistic == "95th Percentile", 
       var == clim_var) %>% 
-    find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year")
+    find_crossing(., threshold = modern_thresh, col_x = "anom_ma", date_col = "year")
   
   
   
@@ -405,8 +436,9 @@ ssp1_thresh_check <- map_dfr(c(0.5,1,1.5,2,3,4), function(.x){
           scenario == "SSP1_26",
           ensemble_statistic == "Ensemble Mean", 
           var == "surf_temp") %>% 
-        find_crossing(threshold = .x, 
-                      col_x = "clim_anom", 
+        find_crossing(., 
+                      threshold = .x,
+                      col_x = "anom_ma", 
                       date_col = "year") %>% 
      as.character() 
     
@@ -416,8 +448,9 @@ ssp1_thresh_check <- map_dfr(c(0.5,1,1.5,2,3,4), function(.x){
           scenario == "SSP1_26",
           ensemble_statistic == "Ensemble Mean", 
           var == "bot_temp") %>% 
-        find_crossing(threshold = .x, 
-                      col_x = "clim_anom", 
+        find_crossing(., 
+                      threshold = .x, 
+                      col_x = "anom_ma", 
                       date_col = "year") %>% 
      as.character()
     
@@ -438,8 +471,9 @@ ssp5_thresh_check <- map_dfr(c(0.5,1,1.5,2,3,4), function(.x){
           scenario == "SSP5_85",
           ensemble_statistic == "Ensemble Mean", 
           var == "surf_temp") %>% 
-        find_crossing(threshold = .x, 
-                      col_x = "clim_anom", 
+        find_crossing(., 
+                      threshold = .x,
+                      col_x = "anom_ma", 
                       date_col = "year") %>% 
      as.character()
     
@@ -449,8 +483,9 @@ ssp5_thresh_check <- map_dfr(c(0.5,1,1.5,2,3,4), function(.x){
           scenario == "SSP5_85",
           ensemble_statistic == "Ensemble Mean", 
           var == "bot_temp") %>% 
-        find_crossing(threshold = .x, 
-                      col_x = "clim_anom", 
+        find_crossing(., 
+                      threshold = .x, 
+                      col_x = "anom_ma", 
                       date_col = "year") %>% 
      as.character()
     
@@ -480,9 +515,7 @@ bind_rows(
   tab_header(title = "Oceanic Condition Crossing Points Under SSP Scenario Ensembles",
              subtitle = "Thresholds set against ten-year (2010-2019) average annual conditions for joint NMFS & DFO survey area") %>% 
    opt_table_font(
-    font = "raleway"
-      #list(google_font(name = "raleway"))
-      )
+    font = "raleway")
 
 
 ```
