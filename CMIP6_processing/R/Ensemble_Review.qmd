@@ -215,7 +215,7 @@ Both the bias-corrections and the observational datasets (OISSTv2, SODA) have be
 ```{r}
 #| label: load-bias-corrected-ensembles
 
-####  Load Bias Corrected Models Datasets
+####  Load Bias Corrected Model Datasets
 
 # Monthly averages have been prepared in: 
 # helper01_regional_timeseries_construction.R

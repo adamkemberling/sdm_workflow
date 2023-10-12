@@ -168,38 +168,7 @@ modern_comparison_annual <- js_ssp %>%
 
 ```
 
- 
-```{r}
-#| label: monthly-diff-from-modern-climate
 
-
-# Get the average conditions over a modern baseline (what time unit?)
-modern_climate_monthly <- js_obs %>% 
-  filter(year %in% c(2010:2019)) %>% 
-  group_by(month) %>% 
-  summarise(across(.cols = c(surf_temp, bot_temp, surf_sal, bot_sal), mean)) %>% 
-  pivot_longer(cols = -month, names_to = "var", values_to = "modern_clim") %>% 
-  mutate(region = "joint trawl survey areas",
-         month = as.numeric(month))
-
-
-
-# Get the distance from the baseline mean
-modern_comparison_monthly <- js_ssp %>% 
-  #filter(year>= 2000) %>% 
-  pivot_longer(cols = c(surf_temp, bot_temp, surf_sal, bot_sal), names_to = "var", values_to = "ssp_val") %>% 
-  drop_na() %>% arrange(date) %>% 
-  mutate(region = "joint trawl survey areas", .before = 1) %>% 
-  mutate(month = lubridate::month(date)) %>% 
-  left_join(modern_climate_monthly, by = join_by(month, var, region)) %>% 
-  mutate(
-    clim_anom = ssp_val - modern_clim,
-    decade = floor_decade(year)) 
-
-
-
-```
- 
 
 
 ```{r}
@@ -520,6 +489,40 @@ bind_rows(
 
 ```
 
+ 
+ 
+  
+```{r}
+#| label: monthly-diff-from-modern-climate
+#| eval: false
+
+
+# Get the average conditions over a modern baseline (what time unit?)
+modern_climate_monthly <- js_obs %>% 
+  filter(year %in% c(2010:2019)) %>% 
+  group_by(month) %>% 
+  summarise(across(.cols = c(surf_temp, bot_temp, surf_sal, bot_sal), mean)) %>% 
+  pivot_longer(cols = -month, names_to = "var", values_to = "modern_clim") %>% 
+  mutate(region = "joint trawl survey areas",
+         month = as.numeric(month))
+
+
+
+# Get the distance from the baseline mean
+modern_comparison_monthly <- js_ssp %>% 
+  #filter(year>= 2000) %>% 
+  pivot_longer(cols = c(surf_temp, bot_temp, surf_sal, bot_sal), names_to = "var", values_to = "ssp_val") %>% 
+  drop_na() %>% arrange(date) %>% 
+  mutate(region = "joint trawl survey areas", .before = 1) %>% 
+  mutate(month = lubridate::month(date)) %>% 
+  left_join(modern_climate_monthly, by = join_by(month, var, region)) %>% 
+  mutate(
+    clim_anom = ssp_val - modern_clim,
+    decade = floor_decade(year)) 
+
+
+
+```
  
  
 ```{r}
