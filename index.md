@@ -16,3 +16,5 @@
 
 [7. Reviewing Temperature Milestones for the Entire DFO+NMFS Study Area](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/Joint_Survey_Horizons.html)
 
+[8. Projection Explainability](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/SDM_explainability.html)
+

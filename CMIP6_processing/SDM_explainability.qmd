@@ -1,0 +1,971 @@
+---
+title: "SDM Model Explainability"
+author: "Adam Kemberling"
+url: "https://github.com/adamkemberling"
+affiliation: "Gulf of Maine Research Institute"
+affiliation_url: "https://www.gmri.org"
+description: | 
+  Seasonal Patterns in Sea Surface Temperatures
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+execute: 
+  echo: false
+  warning: false
+  message: false
+  comment: ""
+  fig-align: center
+  fig-height: 6
+  fig-width: 8
+---
+
+
+```{r}
+#| label: packages
+#| include: false
+#| echo: false
+#| warning: false
+
+####  Packages  ####
+library(lubridate)
+library(here)
+library(rnaturalearth)
+library(scales)
+library(sf)
+library(gmRi)
+library(gt)
+library(patchwork)
+library(tidyverse)
+library(terra) #use terra to save with layer names
+library(tidyterra)
+library(ncdf4)
+library(rcartocolor)
+library(showtext)
+
+
+
+# Box paths
+res_path <- cs_path("res")
+oisst_path <- cs_path("res", "OISST/oisst_mainstays")
+cmip_path  <- cs_path("RES_Data", "CMIP6")
+soda_path  <- cs_path("RES_Data", "SODA")
+
+
+# Polygons for mapping
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+world_sf    <- ne_countries(returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+# set overall zoom for maps
+xlimz <- c(-76, -57)
+ylimz <- c(35, 48)
+
+
+
+# Fix Species names:
+name_fix <- tribble(
+  ~"species",              ~"comname",
+  "butterfish",            "butterfish",              
+  "cod",                   "Atlantic cod",              
+  "haddock",               "haddock",             
+  "hagfish",               "hagfish",                
+  "halibut",               "halibut",                
+  "herring",               "herring",               
+  "jonahcrab",             "Jonah crab",                
+  "littleskate",           "little skate",                
+  "lobster",               "American lobster",               
+  "longfinsquid",          "longfin squid",                
+  "monkfish",              "monkfish",                
+  "northernsandlance",     "northern sandlance",               
+  "oceanquahog",           "ocean quahog",                
+  "pollock",               "pollock",                
+  "reddeepseacrab",        "red deepsea crab",               
+  "redhake",               "red hake",                
+  "rockcrab",              "rock crab",               
+  "scallop",               "scallop",              
+  "scup",                  "scup",               
+  "shortfinsquid",         "shortfin squid",               
+  "silverhake",            "silver hake",              
+  "smoothskate",           "smooth skate",               
+  "spinydogfish",          "spiny dogfish",               
+  "summerflounder",        "summer flounder",              
+  "thornyskate",           "thorny skate",               
+  "whitehake",             "white hake",               
+  "windowpaneflounder",    "windowpane flounder",              
+  "winterflounder",        "winter flounder",               
+  "winterskate",           "winter skate",                
+  "witchflounder",         "witch flounder",              
+  "yellowtailflounder",    "yellowtail flounder"             
+)
+
+
+# Lets turn some fonts on to match the theme:
+
+# Path to the directory containing the font file (replace with your actual path)
+font_dir <- paste0(system.file("stylesheets", package = "gmRi"), "/GMRI_fonts/Avenir/")
+font_add(
+  family = "Avenir",
+  file.path(font_dir, "LTe50342.ttf"),
+  bold = file.path(font_dir, "LTe50340.ttf"),
+  italic = file.path(font_dir, "LTe50343.ttf"),
+  bolditalic = file.path(font_dir, "LTe50347.ttf"))
+showtext_auto()
+
+
+# Mapping theme
+theme_map <- function(guides = T, ...){
+  list(
+    # Theme options, with ellipse to add more
+    theme(
+      # Font across all text
+      text = element_text(family = "raleway"),
+      
+      # Titles
+      plot.title = element_text(hjust = 0, face = "bold", size = 14),
+      plot.subtitle = element_text(size = 12),
+      legend.title = element_text(size = 10),
+      legend.text = element_text(size = 10),
+      
+      # Grids and Axes
+      panel.background = element_blank(), 
+      panel.border = element_rect(color = "black", fill = "transparent"), 
+      panel.grid.major = element_line(color = "gray80"),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.ticks=element_blank(),
+      plot.margin = margin(t = 10, r = 2, b = 0.1, l = 2, unit = "pt"),
+      legend.position = c(.725, .125), 
+      legend.background = element_rect(color = "transparent", fill = "white", 
+                                       size = 0.25),
+      
+      # Use ellipses for tweaks on the fly:
+      ...))
+}
+```
+
+
+# Using Environmental Conditions to Understand VAST Predictions
+
+Model output from VAST models are inherently hard to digest, particularly when they go against prior held beliefs or intuitions about species poreferences.
+
+The following figures will walk through what predictions have been made for a small subset of species. For each species we will show:
+ 1. Predicted biomass distributions      
+ 2. Environmental state at that point in time   
+ 3. Species environmental covariates   
+ 4. Where each ecological production unit on average falls on those preference curves   
+ 
+ 
+ 
+### Loading the Pieces
+
+
+####  1. Predicted Biomass Distributions
+
+Vast model predictions have been processed to return values for the baseline period (2010-2019) as well as at points in the two SSP scenarios when the average SST for the region crosses 0.5, 1, 2, 3, & 4 degrees celsius
+
+These have been processed in: `repositories/COCA_Shiny/Coca_SDM_app_dev/spatial_data_mgmt/vast_projection_preprocessing`
+
+And can be found in: `/Users/akemberling/Documents/Repositories/COCA_Shiny/Data/projections/`
+
+
+```{r}
+# Load the milestone summaries
+horizon_path <-  str_c(
+   "/Users/akemberling/Documents/Repositories/COCA_Shiny/Data/projections/",
+   "Cmilestones_all_species_test.csv")
+horizon_projections <-  read_csv(horizon_path) %>% 
+  left_join(name_fix)
+
+
+# Hexagonal grid
+hex_grid <- read_sf("/Users/akemberling/Documents/Repositories/COCA_Shiny/Data/spatial/hex_grid.geojson")
+
+# Hague line
+# Load the Hague Lines
+hague_sf <- read_sf("/Users/akemberling/Documents/Repositories/COCA_Shiny/Data/spatial/hagueline_crs32619.geojson")
+
+
+```
+
+
+####  2. Environmental State from SSP Scenarios
+
+Average conditions from the SSP scenarios have been processed for mapping conditions during the baseline period (2010-2019) as well as at points in the two SSP scenarios when the average SST for the region crosses 0.5, 1, 2, 3, & 4 degrees celsius.
+
+These environmental states were processed in: `temperature_milestone_conditions.ipynb`
+
+And can be found in: `RES_Data/SSPX_XX/SST_horizon_conditions/`
+
+
+```{r}
+#| label: load ssp scenario conditions
+
+
+# Path to Box
+ssp1_path <- str_c(res_path, "CMIP6/SSP1_26/SST_horizon_conditions/")
+ssp5_path <- str_c(res_path, "CMIP6/SSP5_85/SST_horizon_conditions/")
+
+
+# Baseline Conditions
+bpath_sst = str_c(ssp1_path, "SSP1_2010to2019_baseline_avg_SST.nc") # SSt
+bpath_bt = str_c(ssp1_path, "SSP1_2010to2019_baseline_avg_BT.nc")# Bt
+
+# Load Baselines
+ssp1_stemp_base <- raster::stack(bpath_sst) %>% rotate()
+ssp1_btemp_base <- raster::stack(bpath_bt) %>% rotate()
+
+
+
+# Load 0.5C
+path_sst = str_c(ssp1_path, "SSP1_0.5C_above_baseline_SST.nc") # SSt
+path_bt = str_c(ssp1_path, "SSP1_0.5C_above_baseline_BT.nc") # Bt
+ssp5_05C_stemp <- raster::stack(path_sst)  %>% rotate()
+ssp5_05C_btemp <- raster::stack(path_bt) %>% rotate()
+
+# for SSP5
+path_sst = str_c(ssp5_path, "SSP5_0.5C_above_baseline_SST.nc") # SSt
+path_bt = str_c(ssp5_path, "SSP5_0.5C_above_baseline_BT.nc") # Bt
+ssp5_05C_stemp <- raster::stack(path_sst) %>% rotate()
+ssp5_05C_btemp <- raster::stack(path_bt) %>% rotate()
+
+#----- Loading 1C  ------
+path_sst = str_c(ssp5_path, "SSP5_1C_above_baseline_SST.nc") # SSt
+path_bt = str_c(ssp5_path, "SSP5_1C_above_baseline_BT.nc") # Bt
+ssp5_1C_stemp <- raster::stack(path_sst) %>% rotate()
+ssp5_1C_btemp <- raster::stack(path_bt) %>% rotate()
+
+
+#----- Loading 2C  ------
+path_sst = str_c(ssp5_path, "SSP5_2C_above_baseline_SST.nc") # SSt
+path_bt = str_c(ssp5_path, "SSP5_2C_above_baseline_BT.nc") # Bt
+ssp5_2C_stemp <- raster::stack(path_sst) %>% rotate()
+ssp5_2C_btemp <- raster::stack(path_bt) %>% rotate()
+
+
+#----- Loading 3C  ------
+path_sst = str_c(ssp5_path, "SSP5_3C_above_baseline_SST.nc") # SSt
+path_bt = str_c(ssp5_path, "SSP5_3C_above_baseline_BT.nc") # Bt
+ssp5_3C_stemp <- raster::stack(path_sst) %>% rotate()
+ssp5_3C_btemp <- raster::stack(path_bt) %>% rotate()
+
+
+#----- Loading 4C  ------
+path_sst = str_c(ssp5_path, "SSP5_4C_above_baseline_SST.nc") # SSt
+path_bt = str_c(ssp5_path, "SSP5_4C_above_baseline_BT.nc") # Bt
+ssp5_4C_stemp <- raster::stack(path_sst) %>% rotate()
+ssp5_4C_btemp <- raster::stack(path_bt) %>% rotate()
+```
+
+
+#### 3. Species Preference Curves
+
+The individual preference curves for species have been processed independently and can be found here: `Mills_Lab/Projects/COCA19_projections/tables/`
+
+These curves need to be transformed back to absolute temperature and depth units in celsius or meters for each of the covariate curves. This is done with the grand mean values from the environmental covariate inputs to the VAST training data.
+
+Grand mean/sd of the covariates can be used to un-scale these relationships.    
+**Depth** mean/sd = 123.47/100.2   
+**SST** mean/sd = 11.11/4.55   
+**BT** mean/sd = 7/2.72   
+
+
+```{r}
+pref_path <- cs_path("mills", "Projects/COCA19_projections/tables")
+pref_names <- list.files(pref_path, pattern = "full_covariate_effects.rds") %>% str_remove_all("_full_covariate_effects.rds") %>% tolower()  
+pref_dat <- map(list.files(pref_path, pattern = "full_covariate_effects.rds", full.names = T), read_rds) %>% 
+  setNames(pref_names)
+
+rescale_df <- tribble(
+  ~"Covariate",   ~"gmean", ~"gsd",
+  "Depth",         123.47, 100.2,
+  "SST_seasonal",  11.11,  4.55,
+  "BT_seasonal",   7,      2.72
+)
+
+
+
+
+# Put them all  in one table
+pref_all <- pref_dat %>% 
+  bind_rows(.id = "species") %>% 
+  left_join(rescale_df) %>% 
+  left_join(name_fix) %>% 
+  pivot_wider(names_from = Lin_pred, values_from = c(fit, se, lower, upper), names_sep = "_") %>% 
+  mutate(
+    val_actual = (Value * gsd) + gmean,
+    fit_exp = exp(fit_X1 + fit_X2),
+    up_exp  = exp(upper_X1 + upper_X2),
+    low_exp = exp(lower_X1 + lower_X2),
+    variable = case_when(
+      Covariate == "SST_seasonal" ~ "Surface Temperature",
+      Covariate == "BT_seasonal" ~ "Bottom Temperature",
+      TRUE ~ "Depth"))
+
+# X1 = Delta model presence/absence
+# X2 = Density model
+
+
+```
+
+
+
+#### 4. Average Conditions Acrosss Ecological Production Units
+
+For Each of these species preference curves we want to overlay what the average temperatures are for an EPU at a certain point in time. The EPU's have all been masked over the SSP ensembles already, so we just need to get those timeseries and pull out the points in time where these thresholds are crossed.
+
+Timeseries of SSP scenarios are produced in: `helper_01_regional_timeseries_construction.R`
+
+Files can be found: ``
+
+
+```{r}
+# the variables
+var_list <- c(
+  "Surface Temperature" = "surf_temp", 
+  "Bottom Temperature"  = "bot_temp", 
+  "Surface Salinity"    = "surf_sal", 
+  "Bottom Salinity"     = "bot_sal")
+
+
+# Folders to the timeseries
+ssp1_folder <- cs_path("res", str_c("CMIP6/SSP1_26/BiasCorrected/TimeseriesData/"))
+ssp5_folder <- cs_path("res", str_c("CMIP6/SSP5_85/BiasCorrected/TimeseriesData/"))
+
+
+
+# Load the timeseries
+
+# SSP1
+ssp1_ts <- imap(var_list, function(x, y){
+  
+  # For name replacement
+  var_sym <- sym(x)
+  
+  # Full file Name
+  table_name <- str_c(ssp1_folder, "CMIP6_bias_corrected_regional_", x, ".csv")
+  read_csv(table_name, col_types = cols()) %>% 
+    mutate(variable = y) %>% 
+    rename(bias_corrected_value = {{var_sym}})
+
+})  %>% 
+    bind_rows() %>% 
+    filter(ensemble_statistic %in% c("5th Percentile", "95th Percentile", "Ensemble Mean"),
+           Region %in% c("EPU_GOM", "EPU_GB", "EPU_SS", "EPU_MAB")) %>% 
+  mutate(scenario = "SSP1_26")
+
+
+# Pull out those horizons in time:
+# As table
+ssp1_horizons <- data.frame(
+  "horiz" = c(0, 0.5),
+  "min"   = c(2010, 2048),
+  "max"   = c(2019, 2052)
+)
+
+
+
+# Done in map() to hit each row in the horizons table
+ssp1_epu_horizons <- ssp1_horizons %>% 
+    split(.$horiz) %>% 
+    imap_dfr(
+      # Get the average across the decadal periods
+      function(x, y){
+        
+        # Filter to those years and get mean, sd
+        fut_data_temp <- ssp1_ts %>%
+          filter(year %in% seq(x$min, x$max, by = 1)) %>%
+          group_by(scenario, Region, variable) %>%
+          summarise(mu_name = mean(bias_corrected_value),
+                    .groups = "drop")
+      
+        # Rename those stand-in cols above
+        proj_mu <- str_c("proj_", x$horiz, "C_mu")
+        
+        # Do some r-eval wizardry
+        fut_data_temp <- fut_data_temp %>% 
+          rename(!!proj_mu := mu_name)
+        
+        # Pivot "Wide" to "long"
+        horizon_period = str_c(str_c(x$min, "-", x$max))
+        fut_data_temp <- fut_data_temp %>% 
+          pivot_longer(
+            cols = all_of(c(proj_mu)), 
+            names_to = "var", 
+            values_to = "val") %>% 
+          mutate(
+            ref_period = horizon_period,
+            temp_horizon = str_c(y,"C"))
+        
+        
+      }
+    )
+```
+
+
+```{r}
+# Again for SSP5
+ssp5_ts <- imap(var_list, function(x, y){
+  
+  # For name replacement
+  var_sym <- sym(x)
+  
+  # Full file Name
+  table_name <- str_c(ssp5_folder, "CMIP6_bias_corrected_regional_", x, ".csv")
+  read_csv(table_name, col_types = cols()) %>% 
+    mutate(variable = y) %>% 
+    rename(bias_corrected_value = {{var_sym}})
+})   %>% 
+    bind_rows() %>% 
+    filter(ensemble_statistic %in% c("5th Percentile", "95th Percentile", "Ensemble Mean"),
+           Region %in% c("EPU_GOM", "EPU_GB", "EPU_SS", "EPU_MAB")) %>% 
+  mutate(scenario = "SSP5_85")
+
+
+
+
+
+
+# Pull out those horizons in time:
+# As table
+ssp5_horizons <- data.frame(
+  "horiz" = c(0, 0.5, 1, 1.5, 2, 3, 4),
+  "min"   = c(2010, 2034, 2041, 2054, 2064, 2077, 2095),
+  "max"   = c(2019, 2038, 2045, 2058, 2068, 2081, 2099)
+)
+
+
+
+# Done in map() to hit each row in the horizons table
+ssp5_epu_horizons <- ssp5_horizons %>% 
+    split(.$horiz) %>% 
+    imap_dfr(
+      # Get the average across the decadal periods
+      function(x, y){
+        
+        # Filter to those years and get mean, sd
+        fut_data_temp <- ssp5_ts %>%
+          filter(year %in% seq(x$min, x$max, by = 1)) %>%
+          group_by(scenario, Region, variable) %>%
+          summarise(mu_name = mean(bias_corrected_value),
+                    .groups = "drop")
+      
+        # Rename those stand-in cols above
+        proj_mu <- str_c("proj_", x$horiz, "C_mu")
+        
+        # Do some r-eval wizardry
+        fut_data_temp <- fut_data_temp %>% 
+          rename(!!proj_mu := mu_name)
+        
+        # Pivot "Wide" to "long"
+        horizon_period = str_c(str_c(x$min, "-", x$max))
+        fut_data_temp <- fut_data_temp %>% 
+          pivot_longer(
+            cols = all_of(c(proj_mu)), 
+            names_to = "var", 
+            values_to = "val") %>% 
+          mutate(
+            ref_period = horizon_period,
+            temp_horizon = str_c(y,"C"))
+        
+        
+      }
+    )
+
+```
+
+
+
+```{r}
+
+# Put the conditions together for the two scenarios:
+horizon_conditions <- bind_rows(ssp1_epu_horizons, ssp5_epu_horizons)
+```
+
+# Regional Layout
+
+Map pointing out the EPU's and important coastal features.
+
+
+# Test Case 1: Atlantic Cod
+
+
+```{r}
+ssp_base_map <- function(spec_base, species_option, max_l10){
+  
+  # Plot the baseline biomass
+  ggplot() +
+    geom_sf(data = mutate(spec_base, val = ifelse(val < 0.5, NA, val)), aes(fill = val), color = "transparent") +
+    geom_sf(data = new_england, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = canada, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = hague_sf, color = "black", linewidth = 1) +
+    scale_fill_carto_c(
+      palette = "ag_GrnYl", 
+      trans = "log10", 
+      limits = c(1, max_l10),
+      labels = scales::comma_format(accuracy = 1, suffix = " kg"), 
+      na.value = "transparent",
+      direction = 1) +
+    coord_sf(
+      xlim = c(-182500, 1550000), 
+      ylim = c(3875000, 5370000) , 
+      expand = F, crs = 32619) +
+    labs(
+      title = str_c(species_option, " | Baseline Biomass Density"),
+      subtitle = "Years: 2010-2019") +
+    theme_map() +
+    guides(
+      fill = guide_colorbar(
+        title = "Average Annual Biomass Density / km2",
+        title.position = "top",
+        title.hjust = 0, 
+        barheight = unit(2.5, "in"),
+        barwidth = unit(0.6, "cm"), 
+        direction = "vertical",
+        frame.colour = "black", 
+        ticks.colour = "black")) +
+    theme(legend.position = "right")
+
+  
+}
+```
+
+
+
+```{r}
+
+ssp_proj_map <- function(spec_05, scenario, horizon_years, species_option, max_l10){
+  
+  # Plot the baseline biomass
+  ggplot() +
+    geom_sf(data = mutate(spec_05, val = ifelse(val < 0.5, NA, val)), aes(fill = val), color = "transparent") +
+    geom_sf(data = new_england, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = canada, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = hague_sf, color = "black", linewidth = 1) +
+    scale_fill_carto_c(
+      palette = "ag_GrnYl", 
+      trans = "log10", 
+      limits = c(1, max_l10),
+      labels = scales::comma_format(accuracy = 1, suffix = " kg"), 
+      na.value = "transparent",
+      direction = 1) +
+    coord_sf(
+      xlim = c(-182500, 1550000), 
+      ylim = c(3875000, 5370000) , 
+      expand = F, crs = 32619) +
+    labs(
+      title = str_c(species_option, " | Potential Biomass Density at +0.5C"),
+      subtitle = str_c(scenario, " Timeframe Estimate: ", horizon_years)) +
+    theme_map() +
+    guides(
+      fill = guide_colorbar(
+        title = "Average Annual Biomass Density / km2",
+        title.position = "top",
+        title.hjust = 0, 
+        barheight = unit(2.5, "in"),
+        barwidth = unit(0.6, "cm"), 
+        direction = "vertical",
+        frame.colour = "black", 
+        ticks.colour = "black")) +
+    theme(legend.position = "right")
+}
+
+```
+
+
+
+
+```{r}
+plot_prefs <- function(spec_prefs, species_option, cond_05){
+  
+  ggplot(spec_prefs) +
+    geom_ribbon(aes(val_actual, ymin = low_exp, ymax = up_exp), fill = "gray70") +
+    geom_line(aes(val_actual, fit_exp, group = comname), linewidth = 1) +
+    geom_vline(data = cond_05, aes(xintercept = val, color = Region, linetype = scenario), linewidth = 0.8, key_glyph = draw_key_timeseries) +
+    facet_wrap(.~variable, scales = "free") +
+    scale_color_gmri() +
+    guides(linetype = guide_legend(title.position = "top", title.hjust = 0.5),
+           color = guide_legend(title.position = "top", title.hjust = 0.5)) +
+    theme_gmri(legend.box = "horizontal") +
+    labs(
+      x = "Covariate Value", 
+      title = "Species Preferences & Regional Conditions", 
+      color = "Average Regional Condition",
+      linetype = "SSP Scenario",
+      y = "Predicted kg/km2",
+      subtitle = str_c(species_option, " | +0.5C"))
+}
+```
+
+
+
+### Baseline Biomass
+
+
+```{r}
+
+# Set species
+species_option <- "Atlantic cod"
+
+
+# Add back in the lat/lon or the grid
+spec_base <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "baseline_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Limits and Breaks Standardization
+max_l10 <- 10^(round(log10(max(spec_base$val)))+1)
+
+# Map it
+ssp_base_map(spec_base = spec_base, species_option = species_option, max_l10 = max_l10)
+
+```
+
+### Biomass at 0.5C
+
+::: {.panel-tabset}
+#### SSP1 2.6
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP1_26")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP1-2.6", 
+  horizon_years = "2048-2052", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### SSP5 8.5
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP5-8.5", 
+  horizon_years = "2034-2038", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+#### Conditions at +0.5C
+
+
+
+```{r}
+# Here is where it might get messy
+spec_prefs <- pref_all %>% 
+  filter(comname == species_option)
+
+
+# Need to take the horizon info for the EPU's
+# And merge it with the cod preferences
+cond_05 <- horizon_conditions %>% 
+  filter(var == "proj_0.5C_mu",
+         variable %in% c("Surface Temperature", "Bottom Temperature"))
+
+plot_prefs(species_option = species_option, cond_05 = cond_05, spec_prefs = spec_prefs)
+```
+
+:::
+
+
+# Test Case 2: American Lobster
+
+
+### Baseline Biomass
+
+
+```{r}
+# Set species
+species_option <- "American lobster"
+
+
+# Add back in the lat/lon or the grid
+spec_base <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "baseline_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Limits and Breaks Standardization
+max_l10 <- 10^(round(log10(max(spec_base$val)))+1)
+
+# Map it
+ssp_base_map(spec_base = spec_base, species_option = species_option, max_l10 = max_l10)
+
+
+```
+
+### Biomass at 0.5C
+
+::: {.panel-tabset}
+#### SSP1 2.6
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP1_26")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP1-2.6", 
+  horizon_years = "2048-2052", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### SSP5 8.5
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP5-8.5", 
+  horizon_years = "2034-2038", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+#### Conditions at +0.5C
+
+
+
+```{r}
+# Here is where it might get messy
+spec_prefs <- pref_all %>% 
+  filter(comname == species_option)
+
+
+# Need to take the horizon info for the EPU's
+# And merge it with the cod preferences
+cond_05 <- horizon_conditions %>% 
+  filter(var == "proj_0.5C_mu",
+         variable %in% c("Surface Temperature", "Bottom Temperature"))
+
+plot_prefs(species_option = species_option, cond_05 = cond_05, spec_prefs = spec_prefs)
+```
+
+:::
+
+
+# Test Case 3: Herring
+
+
+### Baseline Biomass
+
+```{r}
+# Set species
+species_option <- "herring"
+
+
+# Add back in the lat/lon or the grid
+spec_base <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "baseline_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Limits and Breaks Standardization
+max_l10 <- 10^(round(log10(max(spec_base$val)))+1)
+
+# Map it
+ssp_base_map(spec_base = spec_base, species_option = species_option, max_l10 = max_l10)
+
+```
+
+### Biomass at 0.5C
+
+::: {.panel-tabset}
+#### SSP1 2.6
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP1_26")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP1-2.6", 
+  horizon_years = "2048-2052", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### SSP5 8.5
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP5-8.5", 
+  horizon_years = "2034-2038", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+#### Conditions at +0.5C
+
+
+
+```{r}
+# Here is where it might get messy
+spec_prefs <- pref_all %>% 
+  filter(comname == species_option)
+
+
+# Need to take the horizon info for the EPU's
+# And merge it with the cod preferences
+cond_05 <- horizon_conditions %>% 
+  filter(var == "proj_0.5C_mu",
+         variable %in% c("Surface Temperature", "Bottom Temperature"))
+
+plot_prefs(species_option = species_option, cond_05 = cond_05, spec_prefs = spec_prefs)
+```
+
+:::
+
+# Test Case 4: Haddock
+
+
+### Baseline Biomass
+
+```{r}
+# Set species
+species_option <- "haddock"
+
+
+# Add back in the lat/lon or the grid
+spec_base <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "baseline_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Limits and Breaks Standardization
+max_l10 <- 10^(round(log10(max(spec_base$val)))+1)
+
+
+# Map it
+ssp_base_map(spec_base = spec_base, species_option = species_option, max_l10 = max_l10)
+
+```
+
+### Biomass at 0.5C
+
+::: {.panel-tabset}
+#### SSP1 2.6
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP1_26")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP1-2.6", 
+  horizon_years = "2048-2052", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### SSP5 8.5
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP5-8.5", 
+  horizon_years = "2034-2038", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### Conditions at +0.5C
+
+
+
+```{r}
+# Here is where it might get messy
+spec_prefs <- pref_all %>% 
+  filter(comname == species_option)
+
+
+# Need to take the horizon info for the EPU's
+# And merge it with the cod preferences
+cond_05 <- horizon_conditions %>% 
+  filter(var == "proj_0.5C_mu",
+         variable %in% c("Surface Temperature", "Bottom Temperature"))
+
+plot_prefs(species_option = species_option, cond_05 = cond_05, spec_prefs = spec_prefs)
+```
+
+:::
