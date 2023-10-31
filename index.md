@@ -18,3 +18,5 @@
 
 [8. Projection Explainability](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/SDM_explainability.html)
 
+[9. Environmental Conditions at Temperature Horizons](https://adamkemberling.github.io/sdm_workflow/CMIP6_processing/R/SSP5_future_condition_maps.html)
+

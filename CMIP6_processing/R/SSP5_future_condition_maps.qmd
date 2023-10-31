@@ -1,0 +1,432 @@
+---
+title: "SSP5 Future States"
+author: "Adam Kemberling"
+url: "https://github.com/adamkemberling"
+affiliation: "Gulf of Maine Research Institute"
+affiliation_url: "https://www.gmri.org"
+description: | 
+  Environmental Conditions for SSP5 Ensembles at Regional Temperature Horizons
+date: "Updated on: `r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    self-contained: true
+execute: 
+  echo: false
+  warning: false
+  message: false
+  comment: ""
+  fig-align: center
+  fig-height: 6
+  fig-width: 5
+---
+
+# Change in Physical Environment at Temperature Horizons
+
+What is the projected average SST and BT at points in the future when the regional SST is 1,2,3, or 4C above the baseline average for 2010-2019?
+
+```{r}
+library(here)
+library(sf)
+library(terra)
+library(tidyterra)
+library(tidyverse)
+library(scales)
+library(RColorBrewer)
+library(showtext)
+library(rnaturalearth)
+library(gmRi)
+
+
+# Unicode for degrees
+deg_sym <- "\u00b0" 
+deg_c <- "\u00b0C"
+deg_f <- "\u00b0F"
+
+
+#### Spatial Polygons:  ####
+
+
+# Read the cropped land coverage:
+new_england <- ne_states("united states of america", returnclass = "sf")
+canada      <- ne_states("canada", returnclass = "sf")
+world_sf    <- ne_countries(returnclass = "sf")
+greenland   <- ne_states(country = "greenland", returnclass = "sf")
+
+# Load the Hague Lines
+hague_sf <- read_sf("~/Documents/Repositories/Coca_Shiny/Data/spatial/hagueline_crs32619.geojson")
+
+# Lets turn some fonts on to match the theme:
+font_dir <- paste0(system.file("stylesheets", package = "gmRi"), "/GMRI_fonts/Avenir/")
+font_add(
+  family = "Avenir",
+  file.path(font_dir, "LTe50342.ttf"),
+  bold = file.path(font_dir, "LTe50340.ttf"),
+  italic = file.path(font_dir, "LTe50343.ttf"),
+  bolditalic = file.path(font_dir, "LTe50347.ttf"))
+showtext_auto()
+```
+
+
+```{r}
+# Horizon conditions calculated here:
+# https://github.com/adamkemberling/sdm_workflow/blob/main/CMIP6_processing/temperature_milestone_conditions.ipynb
+
+#####  Paths  ####
+res_path <- cs_path("res")
+horizon_folder <- str_c(res_path, "CMIP6/SSP5_85/SST_horizon_conditions/")
+scenario_base <- "SSP5_"
+
+
+# Fix missing extents
+extent_vals <- ext(-100, -40, 20, 70)
+
+#####  Baseline Conditions  ####
+sst_base <- rast(str_c(horizon_folder, scenario_base, "2010to2019_baseline_avg_SST.nc"))
+bt_base  <- rast(str_c(horizon_folder, scenario_base, "2010to2019_baseline_avg_BT.nc"))
+
+# Set missing extents
+ext(sst_base) <- extent_vals
+ext(bt_base) <- extent_vals
+
+#####  Projected Environmental State Data  ####
+# Load data for the specific points in time we care about
+
+# file endings
+sst_end <- "_above_baseline_SST.nc"
+bt_end <- "_above_baseline_BT.nc"
+
+
+# 0.5C
+horizon_c <- "0.5C"
+sst_05 <- rast(str_c(horizon_folder, scenario_base, horizon_c, sst_end))
+bt_05 <- rast(str_c(horizon_folder, scenario_base, horizon_c, bt_end))
+ext(sst_05) <- extent_vals
+ext(bt_05) <- extent_vals
+
+# 1C
+horizon_c <- "1C"
+sst_1 <- rast(str_c(horizon_folder, scenario_base, horizon_c, sst_end))
+bt_1 <- rast(str_c(horizon_folder, scenario_base, horizon_c, bt_end))
+ext(sst_1) <- extent_vals
+ext(bt_1) <- extent_vals
+
+
+# 2C
+horizon_c <- "2C"
+sst_2 <- rast(str_c(horizon_folder, scenario_base, horizon_c, sst_end))
+bt_2 <- rast(str_c(horizon_folder, scenario_base, horizon_c, bt_end))
+ext(sst_2) <- extent_vals
+ext(bt_2) <- extent_vals
+
+# 3C
+horizon_c <- "3C"
+sst_3 <- rast(str_c(horizon_folder, scenario_base, horizon_c, sst_end))
+bt_3 <- rast(str_c(horizon_folder, scenario_base, horizon_c, bt_end))
+ext(sst_3) <- extent_vals
+ext(bt_3) <- extent_vals
+
+# 4C
+horizon_c <- "4C"
+sst_4 <- rast(str_c(horizon_folder, scenario_base, horizon_c, sst_end))
+bt_4 <- rast(str_c(horizon_folder, scenario_base, horizon_c, bt_end))
+ext(sst_4) <- extent_vals
+ext(bt_4) <- extent_vals
+
+```
+
+
+```{r}
+#| results: asis
+gmRi::use_gmri_style_rmd()
+```
+
+## Baseline Consitions
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+```{r}
+ggplot() +
+  tidyterra::geom_spatraster(data = sst_base) +
+    geom_sf(data = new_england, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = canada, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = greenland, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = hague_sf, color = "black", linewidth = 0.8) +
+    scale_fill_distiller(
+      palette = "RdBu", 
+      direction = -1,
+      limits = c(-1, 35),
+      labels = number_format(suffix = deg_c)) +
+    coord_sf(
+      xlim = c(-82, -40), 
+      ylim = c(26, 70), 
+      expand = F, crs = 4326) +
+    labs(
+      title = str_c("Baseline Surface Temperature"),
+      subtitle = "Years: 2010-2019") +
+    map_theme() +
+    guides(
+      fill = guide_colorbar(
+        title = "Sea Surface Temperature",
+        title.position = "top",
+        title.hjust = 0, 
+        barheight = unit(2.5, "in"),
+        barwidth = unit(1, "cm"), 
+        direction = "vertical",
+        frame.colour = "black", 
+        ticks.colour = "black")) +
+    theme(legend.position = "right")
+```
+
+
+### Bottom Temperature
+
+```{r}
+ggplot() +
+    tidyterra::geom_spatraster(data = bt_base) +
+    geom_sf(data = new_england, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = canada, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = greenland, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = hague_sf, color = "black", linewidth = 0.8) +
+    scale_fill_distiller(
+      palette = "RdBu", 
+      direction = -1,
+      limits = c(-1, 40),
+      labels = number_format(suffix = deg_c)) +
+    coord_sf(
+      xlim = c(-82, -40), 
+      ylim = c(26, 70), 
+      expand = F, crs = 4326) +
+    labs(
+      title = str_c("Baseline Bottom Temperature"),
+      subtitle = "Years: 2010-2019") +
+    map_theme() +
+    guides(
+      fill = guide_colorbar(
+        title = "Bottom Temperature",
+        title.position = "top",
+        title.hjust = 0, 
+        barheight = unit(2.5, "in"),
+        barwidth = unit(1, "cm"), 
+        direction = "vertical",
+        frame.colour = "black", 
+        ticks.colour = "black")) +
+    theme(legend.position = "right")
+```
+
+
+:::
+
+
+```{r}
+plot_sst_diff <- function(proj_sst, horizon_c, year_range){
+  ggplot() +
+  tidyterra::geom_spatraster(data = proj_sst - sst_base) +
+    geom_sf(data = new_england, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = canada, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = greenland, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = hague_sf, color = "black", linewidth = 0.8) +
+    scale_fill_distiller(
+      palette = "RdBu", 
+      direction = -1,
+      limits = c(-4, 4),
+      labels = number_format(suffix = deg_c),
+      oob = oob_squish) +
+    coord_sf(
+      xlim = c(-82, -40), 
+      ylim = c(26, 70), 
+      expand = F, crs = 4326) +
+    labs(
+      title = str_c("Change in Surface Temperature at: ", horizon_c),
+      subtitle = str_c("Years: ", year_range)) +
+    map_theme() +
+    guides(
+      fill = guide_colorbar(
+        title = "SST Change",
+        title.position = "top",
+        title.hjust = 0, 
+        barheight = unit(2.5, "in"),
+        barwidth = unit(1, "cm"), 
+        direction = "vertical",
+        frame.colour = "black", 
+        ticks.colour = "black")) +
+    theme(legend.position = "right")
+}
+```
+
+
+```{r}
+plot_bt_diff <- function(proj_bt, horizon_c, year_range){
+  ggplot() +
+  tidyterra::geom_spatraster(data = proj_bt - bt_base) +
+    geom_sf(data = new_england, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = canada, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = greenland, color = "gray95", fill = "gray40", linewidth = 0.15) +
+    geom_sf(data = hague_sf, color = "black", linewidth = 0.8) +
+    scale_fill_distiller(
+      palette = "RdBu", 
+      direction = -1,
+      limits = c(-4, 4),
+      labels = number_format(suffix = deg_c),
+      oob = oob_squish) +
+    coord_sf(
+      xlim = c(-82, -40), 
+      ylim = c(26, 70), 
+      expand = F, crs = 4326) +
+    labs(
+      title = str_c("Change in Bottom Temperature at: ", horizon_c),
+      subtitle = str_c("Years: ", year_range)) +
+    map_theme() +
+    guides(
+      fill = guide_colorbar(
+        title = "SST Change",
+        title.position = "top",
+        title.hjust = 0, 
+        barheight = unit(2.5, "in"),
+        barwidth = unit(1, "cm"), 
+        direction = "vertical",
+        frame.colour = "black", 
+        ticks.colour = "black")) +
+    theme(legend.position = "right")
+}
+```
+
+# +0.5 Celsius
+
+```{r}
+horizon_c <- str_c("+0.5", deg_c)
+year_range <- "2034-2038"
+```
+
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+```{r}
+
+plot_sst_diff(proj_sst = sst_05, horizon_c, year_range)
+```
+
+
+### Bottom Temperature
+
+```{r}
+
+plot_bt_diff(proj_bt = bt_05, horizon_c, year_range)
+```
+
+
+:::
+
+# +1 Celsius
+
+```{r}
+horizon_c <- str_c("+1", deg_c)
+year_range <- "2041-2045"
+```
+
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+```{r}
+plot_sst_diff(proj_sst = sst_1, horizon_c, year_range)
+```
+
+
+### Bottom Temperature
+
+```{r}
+plot_bt_diff(proj_bt = bt_1, horizon_c, year_range)
+```
+
+
+:::
+
+
+# +2 Celsius
+
+```{r}
+horizon_c <- str_c("+2", deg_c)
+year_range <- "2064-2068"
+```
+
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+```{r}
+plot_sst_diff(proj_sst = sst_2, horizon_c, year_range)
+```
+
+
+### Bottom Temperature
+
+```{r}
+plot_bt_diff(proj_bt = bt_2, horizon_c, year_range)
+```
+
+
+:::
+
+
+# +3 Celsius
+
+```{r}
+horizon_c <- str_c("+3", deg_c)
+year_range <- "2077-2081"
+```
+
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+```{r}
+plot_sst_diff(proj_sst = sst_3, horizon_c, year_range)
+```
+
+
+### Bottom Temperature
+
+```{r}
+plot_bt_diff(proj_bt = bt_3, horizon_c, year_range)
+```
+
+
+:::
+
+
+
+# +4 Celsius
+
+```{r}
+horizon_c <- str_c("+4", deg_c)
+year_range <- "2095-2099"
+```
+
+
+::: {.panel-tabset}
+
+### Surface Temperature
+
+```{r}
+plot_sst_diff(proj_sst = sst_4, horizon_c, year_range)
+```
+
+
+### Bottom Temperature
+
+```{r}
+
+plot_bt_diff(proj_bt = bt_4, horizon_c, year_range)
+```
+
+
+:::
+

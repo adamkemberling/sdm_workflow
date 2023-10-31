@@ -268,8 +268,8 @@ These curves need to be transformed back to absolute temperature and depth units
 
 Grand mean/sd of the covariates can be used to un-scale these relationships.    
 **Depth** mean/sd = 123.47/100.2   
-**SST** mean/sd = 11.11/4.55   
-**BT** mean/sd = 7/2.72   
+**SST**   mean/sd = 11.11/4.55   
+**BT**    mean/sd = 7/2.72   
 
 
 ```{r}
@@ -493,6 +493,10 @@ Map pointing out the EPU's and important coastal features.
 
 
 ```{r}
+#| label: baseline-plot
+
+
+
 ssp_base_map <- function(spec_base, species_option, max_l10){
   
   # Plot the baseline biomass
@@ -535,6 +539,7 @@ ssp_base_map <- function(spec_base, species_option, max_l10){
 
 
 ```{r}
+#| label: projection-map
 
 ssp_proj_map <- function(spec_05, scenario, horizon_years, species_option, max_l10){
   
@@ -578,13 +583,15 @@ ssp_proj_map <- function(spec_05, scenario, horizon_years, species_option, max_l
 
 
 ```{r}
+#| label: preference-plot
+
 plot_prefs <- function(spec_prefs, species_option, cond_05){
   
   ggplot(spec_prefs) +
-    geom_ribbon(aes(val_actual, ymin = low_exp, ymax = up_exp), fill = "gray70") +
+    # geom_ribbon(aes(val_actual, ymin = low_exp, ymax = up_exp), fill = "gray70") +
     geom_line(aes(val_actual, fit_exp, group = comname), linewidth = 1) +
     geom_vline(data = cond_05, aes(xintercept = val, color = Region, linetype = scenario), linewidth = 0.8, key_glyph = draw_key_timeseries) +
-    facet_wrap(.~variable, scales = "free") +
+    facet_wrap(.~variable, scales = "free_x") +
     scale_color_gmri() +
     guides(linetype = guide_legend(title.position = "top", title.hjust = 0.5),
            color = guide_legend(title.position = "top", title.hjust = 0.5)) +
@@ -597,6 +604,124 @@ plot_prefs <- function(spec_prefs, species_option, cond_05){
       y = "Predicted kg/km2",
       subtitle = str_c(species_option, " | +0.5C"))
 }
+
+
+# Testing matching up lines to points
+# take gulf of maine at all horizons
+
+# take cod
+cod_prefs <- pref_all %>% filter(comname == "Atlantic cod")
+
+
+# Need to take the horizon info for the EPU's
+# And merge it with the cod preferences
+cond_test <- horizon_conditions %>% 
+  filter(#Region == "EPU_GOM",
+         scenario == "SSP5_85",
+         str_detect(var, "_mu"),
+         variable %in% c("Surface Temperature", "Bottom Temperature")) %>% 
+  mutate(temp_horizon = ifelse(temp_horizon == "0C", "Baseline Average", str_c("+", temp_horizon)),
+         )
+```
+
+
+```{r}
+#| label: pref-plot-dev
+
+
+
+#### Option 1: Plut the points on the line,
+# Tricky to get them to always match
+
+# join should go from x: val_actual, to y:val
+pref_both <- left_join(
+  bind_rows(list(
+    mutate(cod_prefs, val_rounded = round(val_actual, 1), Region = "EPU_GOM"),
+    mutate(cod_prefs, val_rounded = round(val_actual, 1), Region = "EPU_GB"),
+    mutate(cod_prefs, val_rounded = round(val_actual, 1), Region = "EPU_SS"),
+    mutate(cod_prefs, val_rounded = round(val_actual, 1), Region = "EPU_MAB"))),
+  mutate(cond_test, val_rounded = round(val, 1)))  %>% 
+  mutate(Region = factor(Region, levels = c("EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB")),
+         temp_horizon = factor(temp_horizon, levels = c(
+           "Baseline Average", "+0.5C", "+1C", "+1.5C", "+2C", "+3C", "+4C")),
+         psize = case_when(
+           temp_horizon == "Baseline Average" ~ 2,
+           temp_horizon == "+0.5C" ~ 3,
+           temp_horizon == "+1C" ~ 2.5,
+           temp_horizon == "+1.5C" ~ 2,
+           temp_horizon == "+2C" ~ 1.5,
+           temp_horizon == "+3C" ~ 1.25,
+           temp_horizon == "+4C" ~ 1
+         ))
+
+ggplot(filter(pref_both, variable != "Depth")) +
+    geom_ribbon(aes(val_actual, ymin = low_exp, ymax = up_exp), fill = "gray70") +
+    geom_line(aes(val_actual, fit_exp, group = comname), linewidth = 1) +
+    geom_point(
+      data = filter(pref_both, is.na(val) == FALSE),
+      aes(val_actual, y = fit_exp, 
+          #size = I(psize)
+          size = temp_horizon,
+          fill = val_actual), 
+      color = "black", shape = 21) +
+    facet_grid(Region~variable) +
+    scale_fill_carto_c() +
+    guides(
+      fill = guide_colorbar(nrow = 1),
+      size = guide_legend(nrow = 1)) +
+    theme_gmri() +
+    #theme_gmri(legend.box = "horizontal") +
+    labs(
+      x = "Covariate Value", 
+      title = "Species Preferences & Regional Conditions", 
+      fill = "Future Temperature",
+      size = "Future Temperature Horizon",
+      y = "Predicted kg/km2",
+      subtitle = str_c("Atlantic cod", " | +0.5C"))
+
+
+
+#### Option 2: Do vertical lines, but fade them,
+bind_rows(list(
+    mutate(cod_prefs, Region = "EPU_GOM"),
+    mutate(cod_prefs, Region = "EPU_GB"),
+    mutate(cod_prefs, Region = "EPU_SS"),
+    mutate(cod_prefs, Region = "EPU_MAB"))) %>% 
+    mutate(Region = factor(Region, levels = c("EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB"))) %>% 
+  filter(variable != "Depth") %>% 
+  ggplot() +
+    geom_ribbon(aes(val_actual, ymin = low_exp, ymax = up_exp), fill = "gray70") +
+    geom_vline(
+        data = mutate(
+          cond_test,
+          temp_horizon = factor(temp_horizon, levels = c("Baseline Average", "+0.5C", "+1C", "+1.5C", "+2C", "+3C", "+4C")),
+          Region = factor(Region, levels = c("EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB"))),
+        aes(xintercept = val, color = temp_horizon, alpha = temp_horizon), linewidth = 1.2, key_glyph = draw_key_rect) +
+    # geom_point(
+    #     data = mutate(
+    #       cond_test, 
+    #       temp_horizon = factor(temp_horizon, levels = c("Baseline Average", "+0.5C", "+1C", "+1.5C", "+2C", "+3C", "+4C")),
+    #       Region = factor(Region, levels = c("EPU_SS", "EPU_GOM", "EPU_GB", "EPU_MAB"))), 
+    #     aes(x = val, y = 2, color = temp_horizon, alpha = temp_horizon), 
+    #     size = 1.8, key_glyph = draw_key_rect, position = position_nudge(y = 0) ) +
+    geom_line(aes(val_actual, fit_exp, group = comname), linewidth = 1) +
+    
+    facet_grid(Region~variable) +
+    scale_alpha_discrete(range = c(1, 0.8)) +
+    scale_color_brewer(palette = "Reds", direction = 1) +
+    guides(
+      color = guide_legend(nrow = 1, title.position = "top", title.hjust = 0.5),
+      alpha = guide_legend(nrow = 1, title.position = "top", title.hjust = 0.5)) +
+    theme_gmri() +
+    #theme_gmri(legend.box = "horizontal") +
+    labs(
+      x = "Covariate Value", 
+      title = "Species Preferences & Regional Conditions", 
+      color = "Future Climate State",
+      alpha = "Future Climate State",
+      y = "Predicted kg/km2",
+      subtitle = str_c("Atlantic cod", " | +0.5C"))
+
 ```
 
 
@@ -885,6 +1010,195 @@ plot_prefs(species_option = species_option, cond_05 = cond_05, spec_prefs = spec
 ```{r}
 # Set species
 species_option <- "haddock"
+
+
+# Add back in the lat/lon or the grid
+spec_base <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "baseline_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Limits and Breaks Standardization
+max_l10 <- 10^(round(log10(max(spec_base$val)))+1)
+
+
+# Map it
+ssp_base_map(spec_base = spec_base, species_option = species_option, max_l10 = max_l10)
+
+```
+
+### Biomass at 0.5C
+
+::: {.panel-tabset}
+#### SSP1 2.6
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP1_26")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP1-2.6", 
+  horizon_years = "2048-2052", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### SSP5 8.5
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP5-8.5", 
+  horizon_years = "2034-2038", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### Conditions at +0.5C
+
+
+
+```{r}
+# Here is where it might get messy
+spec_prefs <- pref_all %>% 
+  filter(comname == species_option)
+
+
+# Need to take the horizon info for the EPU's
+# And merge it with the cod preferences
+cond_05 <- horizon_conditions %>% 
+  filter(var == "proj_0.5C_mu",
+         variable %in% c("Surface Temperature", "Bottom Temperature"))
+
+plot_prefs(species_option = species_option, cond_05 = cond_05, spec_prefs = spec_prefs)
+```
+
+:::
+
+
+
+# Test Case 6: Halibut
+
+
+### Baseline Biomass
+
+```{r}
+# Set species
+species_option <- "halibut"
+
+
+# Add back in the lat/lon or the grid
+spec_base <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "baseline_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Limits and Breaks Standardization
+max_l10 <- 10^(round(log10(max(spec_base$val)))+1)
+
+
+# Map it
+ssp_base_map(spec_base = spec_base, species_option = species_option, max_l10 = max_l10)
+
+```
+
+### Biomass at 0.5C
+
+::: {.panel-tabset}
+#### SSP1 2.6
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP1_26")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP1-2.6", 
+  horizon_years = "2048-2052", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### SSP5 8.5
+
+```{r}
+# Add back in the lat/lon or the grid
+spec_05 <- horizon_projections %>% 
+  filter(comname == species_option,
+         var == "proj_0.5C_mu",
+         scenario == "CMIP6_SSP5_85")  %>% 
+  left_join(hex_grid, by = join_by(pt_id)) %>% 
+  st_as_sf()
+  
+# Map it
+ssp_proj_map(
+  spec_05 = spec_05, 
+  scenario = "SSP5-8.5", 
+  horizon_years = "2034-2038", 
+  species_option = species_option, 
+  max_l10 = max_l10)
+```
+
+
+#### Conditions at +0.5C
+
+
+
+```{r}
+# Here is where it might get messy
+spec_prefs <- pref_all %>% 
+  filter(comname == species_option)
+
+
+# Need to take the horizon info for the EPU's
+# And merge it with the cod preferences
+cond_05 <- horizon_conditions %>% 
+  filter(var == "proj_0.5C_mu",
+         variable %in% c("Surface Temperature", "Bottom Temperature"))
+
+plot_prefs(species_option = species_option, cond_05 = cond_05, spec_prefs = spec_prefs)
+```
+
+:::
+
+
+# Test Case 5: Scup
+
+
+### Baseline Biomass
+
+```{r}
+# Set species
+species_option <- "scup"
 
 
 # Add back in the lat/lon or the grid
