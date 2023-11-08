@@ -482,6 +482,9 @@ ssp5_epu_horizons <- ssp5_horizons %>%
 
 # Put the conditions together for the two scenarios:
 horizon_conditions <- bind_rows(ssp1_epu_horizons, ssp5_epu_horizons)
+
+# Save for ease of use elsewhere:
+# write_csv(horizon_conditions, here::here("local_scrap/regional_scenario_conditions_at_horizons.csv"))
 ```
 
 # Regional Layout

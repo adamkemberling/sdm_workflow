@@ -61,9 +61,18 @@ greenland   <- ne_states(country = "greenland", returnclass = "sf")
 
 
 # # Fonts for plots if they worked
-sysfonts::font_add_google("Raleway")
+# Path to the directory containing the font file (replace with your actual path)
+font_dir <- paste0(system.file("stylesheets", package = "gmRi"), "/GMRI_fonts/Avenir/")
+sysfonts::font_add(
+  family = "Avenir",
+  file.path(font_dir, "LTe50342.ttf"),
+  bold = file.path(font_dir, "LTe50340.ttf"),
+  italic = file.path(font_dir, "LTe50343.ttf"),
+  bolditalic = file.path(font_dir, "LTe50347.ttf"))
 showtext::showtext_auto()
 
+# Prevents tiny fonts when saving
+showtext::showtext_opts(dpi=300) 
 ```
 
 
@@ -412,9 +421,9 @@ ssp_both %>%
 
 
 
-# Historic Observation Datasets
+# Observational Datasets
 
-There are two data sources with which the CMIP6 model outputs are checked against to perform the bias-corrections. These are the OISSTv2 and SODA reanalysis datasets. Monthly-averaged timeseries for each region can be viewed below.
+There are two data sources with which the CMIP6 model outputs are checked against to perform the bias-corrections. These are **1. OISSTv2** and **2. SODA reanalysis** data. Monthly-averaged timeseries for each region can be viewed below.
 
 
 ```{r}
@@ -686,6 +695,67 @@ ggplot() +
   theme_gmri() +
   labs(fill = "SSP Scenario Ensemble\n(5th-95th Percentile Range)", color = "Observational Data", x = "", y = plot_var)
 ```
+
+
+### Gulf of Maine Focus
+
+```{r}
+deg_c <- "\u00b0C"
+region <- "EPU_GOM"
+plot_vars <- c("Surface Temperature", "Bottom Temperature")
+
+gom_ssp <- filter(ssps_annual, Region == region, variable %in% plot_vars) %>% 
+      mutate(Region = "Gulf of Maine")
+gom_obs <- filter(reference_annual, Region == region, variable %in% plot_vars) %>% 
+      mutate(Region = "Gulf of Maine")
+
+ggplot() +
+  # Confidence Intervals
+  geom_ribbon(
+    data = filter(gom_ssp, scenario == "SSP1: 2.6"),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.4) +
+  geom_line(
+    data = filter(gom_ssp, scenario == "SSP1: 2.6"),
+    aes(year, `Ensemble Mean`, color = scenario),
+    linewidth = 0.8, key_glyph = "timeseries") +
+  geom_ribbon(
+    data = filter(gom_ssp, scenario != "SSP1: 2.6"),
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, fill = scenario),
+    color = "white", alpha = 0.4) +
+  geom_line(
+    data = filter(gom_ssp, scenario != "SSP1: 2.6"),
+      aes(year, `Ensemble Mean`, color = scenario),
+    linewidth = 0.8, key_glyph = "timeseries") +
+  # Observational Data
+  geom_line(
+    data = gom_obs, 
+    aes(year, mean_val, color = reference_dataset),
+    linewidth = 1, key_glyph = "timeseries") +
+  scale_fill_gmri() +
+  scale_color_manual(values = c("black", "black", gmri_cols("blue"), gmri_cols("orange"))) +
+  scale_x_continuous(expand = expansion(add = c(3,0))) +
+  scale_y_continuous(labels = scales::label_number(suffix = deg_c)) +
+  facet_grid(fct_rev(variable)~Region, scales = "free") +
+  theme_gmri() +
+  guides(color = guide_legend(order = 1, nrow = 2, title.position = "top", title.hjust = 0.5), 
+         fill = guide_legend(order = 2, title.position = "top", title.hjust = 0.5)) +
+  labs(fill = "Climate Ensemble Uncertainty\n(5th-95th Percentile Range)", 
+       color = "Average Annual Temperature:", 
+       x = "", 
+       y = str_c("Temperature"),
+       title = "Gulf of Maine Observed and Projected Climates") +
+  theme(legend.box = "horizontal",
+        legend.box.background = element_rect(color = "black"),
+        legend.title = element_text(size = 14, family = "Avenir"),
+        legend.text = element_text(size = 12, family = "Avenir"),
+        axis.title = element_text(size = 14, family = "Avenir"),
+        axis.text = element_text(size = 12, family = "Avenir"),
+        plot.title = element_text(size = 14, family = "Avenir"),
+        strip.text = element_text(family = "Avenir"))
+```
+
+
 :::
 
 

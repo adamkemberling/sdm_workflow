@@ -38,7 +38,11 @@ jointsurvey_folder <- cs_path("res", str_c("CMIP6/", "SSP1_and_SSP5_JointSurvey_
 
 # 1. Entire VAST Area
 # Just the shapefile
-trawl_crsbnd <- read_sf(str_c(dfo_path, "DFO_NMFS_CRSBND_area.geojson"))
+trawl_crsbnd <- read_sf(str_c(dfo_path, "DFO_NMFS_CRSBND_area.geojson")) %>% 
+  st_union() %>% 
+  st_as_sf() %>% 
+  mutate(id = "Joint Survey Area") %>% 
+  rename(geometry = x)
 
 
 
@@ -114,6 +118,13 @@ stack_to_df <- function(month_stack, var_name){
 ####  2. Load Bias Corrected SSP Scenario Data  ####
 
 
+# variables labels to pull
+vars_neat <- c(
+  "Surface Temperature" = "surf_temp",
+  "Surface Salinity"    = "surf_sal",
+  "Bottom Temperature"  = "bot_temp",
+  "Bottom Salinity"     = "bot_sal")
+
 
 
 # Load ensemble percentile data for SSP1
@@ -131,16 +142,6 @@ ssp5_bs  <- load_ensemble_percentiles(cmip_var = "bot_sal", ssp_scenario = "SSP5
 
 
 
-# variables labels to pull
-vars_neat <- c(
-  "Surface Temperature" = "surf_temp",
-  "Surface Salinity"    = "surf_sal",
-  "Bottom Temperature"  = "bot_temp",
-  "Bottom Salinity"     = "bot_sal")
-
-
-
-
 
 
 
@@ -152,15 +153,15 @@ vars_neat <- c(
 
 # SSP1
 ssp1_sst_masked <- map(ssp1_sst, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
-ssp1_bt_masked <- map(ssp1_bt, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
-ssp1_ss_masked <- map(ssp1_ss, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
-ssp1_bs_masked <- map(ssp1_bs, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+ssp1_bt_masked  <- map(ssp1_bt, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+ssp1_ss_masked  <- map(ssp1_ss, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+ssp1_bs_masked  <- map(ssp1_bs, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
 
 # SSP5
 ssp5_sst_masked <- map(ssp5_sst, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
-ssp5_bt_masked <- map(ssp5_bt, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
-ssp5_ss_masked <- map(ssp5_ss, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
-ssp5_bs_masked <- map(ssp5_bs, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+ssp5_bt_masked  <- map(ssp5_bt, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+ssp5_ss_masked  <- map(ssp5_ss, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
+ssp5_bs_masked  <- map(ssp5_bs, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
 
 # # This step fails...
 # crsbnd_timeseries<- purrr::map(crsbnd_masked[1], .f = stack_to_df(month_stack = .x, var_name = var_select))
@@ -170,35 +171,41 @@ ssp5_bs_masked <- map(ssp5_bs, ~mask_shape(in_ras = .x, in_mask = trawl_crsbnd))
 
 # 2. Convert the masked rasters to timeseries
 ssp1_sst_ts <- map_dfr(ssp1_sst_masked, ~stack_to_df(month_stack = .x, var_name = "surf_temp"), .id = "cmip_id")
-ssp1_bt_ts  <- map_dfr(ssp1_bt_masked, ~stack_to_df(month_stack = .x, var_name = "bot_temp"), .id = "cmip_id")
-ssp1_ss_ts  <- map_dfr(ssp1_ss_masked, ~stack_to_df(month_stack = .x, var_name = "surf_sal"), .id = "cmip_id")
-ssp1_bs_ts  <- map_dfr(ssp1_bs_masked, ~stack_to_df(month_stack = .x, var_name = "bot_sal"), .id = "cmip_id")
+ssp1_bt_ts  <- map_dfr(ssp1_bt_masked,  ~stack_to_df(month_stack = .x, var_name = "bot_temp"), .id = "cmip_id")
+ssp1_ss_ts  <- map_dfr(ssp1_ss_masked,  ~stack_to_df(month_stack = .x, var_name = "surf_sal"), .id = "cmip_id")
+ssp1_bs_ts  <- map_dfr(ssp1_bs_masked,  ~stack_to_df(month_stack = .x, var_name = "bot_sal"), .id = "cmip_id")
 ssp5_sst_ts <- map_dfr(ssp5_sst_masked, ~stack_to_df(month_stack = .x, var_name = "surf_temp"), .id = "cmip_id")
-ssp5_bt_ts  <- map_dfr(ssp5_bt_masked, ~stack_to_df(month_stack = .x, var_name = "bot_temp"), .id = "cmip_id")
-ssp5_ss_ts  <- map_dfr(ssp5_ss_masked, ~stack_to_df(month_stack = .x, var_name = "surf_sal"), .id = "cmip_id")
-ssp5_bs_ts  <- map_dfr(ssp5_bs_masked, ~stack_to_df(month_stack = .x, var_name = "bot_sal"), .id = "cmip_id")
+ssp5_bt_ts  <- map_dfr(ssp5_bt_masked,  ~stack_to_df(month_stack = .x, var_name = "bot_temp"), .id = "cmip_id")
+ssp5_ss_ts  <- map_dfr(ssp5_ss_masked,  ~stack_to_df(month_stack = .x, var_name = "surf_sal"), .id = "cmip_id")
+ssp5_bs_ts  <- map_dfr(ssp5_bs_masked,  ~stack_to_df(month_stack = .x, var_name = "bot_sal"), .id = "cmip_id")
 
+
+# Remove the lead-ins on cmip_id so we can join
+ssp1_sst_ts <- ssp1_sst_ts %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_"))
+ssp1_bt_ts  <- ssp1_bt_ts  %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_")) 
+ssp1_ss_ts  <- ssp1_ss_ts  %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_")) 
+ssp1_bs_ts  <- ssp1_bs_ts  %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_")) 
+ssp5_sst_ts <- ssp5_sst_ts %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_"))
+ssp5_bt_ts  <- ssp5_bt_ts  %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_")) 
+ssp5_ss_ts  <- ssp5_ss_ts  %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_")) 
+ssp5_bs_ts  <- ssp5_bs_ts  %>% mutate(cmip_id = str_remove(cmip_id, "surf_temp_|bot_temp_|surf_sal_|bot_sal_|SODA_|OISST_")) 
 
 
 # Put all the vars in one table
 crsbnd_all <- bind_rows(
   list(
-    "SSP1_26" = bind_rows(
-      ssp1_sst_ts,
-      ssp1_bt_ts,
-      ssp1_ss_ts,
-      ssp1_bs_ts  
-    ),
-    "SSP5_85" = bind_rows(
-      ssp5_sst_ts,
-      ssp5_bt_ts,
-      ssp5_ss_ts,
-      ssp5_bs_ts
-    )
-    
-    
-  ), .id = "scenario"
+    "SSP1_26" = left_join(ssp1_sst_ts, ssp1_bt_ts) %>% 
+        left_join(ssp1_ss_ts) %>% 
+        left_join(ssp1_bs_ts),
+    "SSP5_85" = left_join(ssp5_sst_ts, ssp5_bt_ts) %>% 
+        left_join(ssp5_ss_ts) %>% 
+        left_join(ssp5_bs_ts)
+    ), .id = "scenario"
 )
+
+
+
+
 
 
 ####  Check & Save  ####
@@ -219,9 +226,13 @@ crsbnd_tidy <- crsbnd_all %>%
       ensemble_statistic = factor(
         ensemble_statistic, 
         levels = c("Individual CMIP6 Output","5th Percentile",
-                   "Ensemble Mean", "95th Percentile")))
+                   "Ensemble Mean", "95th Percentile"))) %>% 
+  dplyr::select(-cmip_id)
   
   
+
+
+
 
 
 #### Save the CMIP file  ####
@@ -258,14 +269,14 @@ oisst_monthly <- stack(str_c(oisst_month_path, "oisst_monthly.nc"), varname = "s
 
 
 # Do the masking and timeseries conversion:
-oisst_masked <- mask_shape(in_ras = oisst_monthly, in_mask = trawl_crsbnd)
-oisst_ts <- stack_to_df(month_stack = oisst_masked, var_name = "surf_temp") #%>% mutate(dataset_id = "OISSTv2")
+oisst_masked      <- mask_shape(in_ras = oisst_monthly, in_mask = trawl_crsbnd)
+oisst_ts          <- stack_to_df(month_stack = oisst_masked, var_name = "surf_temp") #%>% mutate(dataset_id = "OISSTv2")
 soda_btemp_masked <- mask_shape(in_ras = soda_btemp, in_mask = trawl_crsbnd)
-soda_btemp_ts <- stack_to_df(month_stack = soda_btemp_masked, var_name = "bot_temp") #%>% mutate(dataset_id = "SODA")
-soda_ssal_masked <- mask_shape(in_ras = soda_ssal, in_mask = trawl_crsbnd)
-soda_ssal_ts <- stack_to_df(month_stack = soda_ssal_masked, var_name = "surf_sal") #%>% mutate(dataset_id = "SODA")
-soda_bsal_masked <- mask_shape(in_ras = soda_bsal, in_mask = trawl_crsbnd)
-soda_bsal_ts <- stack_to_df(month_stack = soda_bsal_masked, var_name = "bot_sal") #%>% mutate(dataset_id = "SODA")
+soda_btemp_ts     <- stack_to_df(month_stack = soda_btemp_masked, var_name = "bot_temp") #%>% mutate(dataset_id = "SODA")
+soda_ssal_masked  <- mask_shape(in_ras = soda_ssal, in_mask = trawl_crsbnd)
+soda_ssal_ts      <- stack_to_df(month_stack = soda_ssal_masked, var_name = "surf_sal") #%>% mutate(dataset_id = "SODA")
+soda_bsal_masked  <- mask_shape(in_ras = soda_bsal, in_mask = trawl_crsbnd)
+soda_bsal_ts      <- stack_to_df(month_stack = soda_bsal_masked, var_name = "bot_sal") #%>% mutate(dataset_id = "SODA")
 
 
 
