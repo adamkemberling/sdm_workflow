@@ -71,7 +71,11 @@ trawl_crsbnd <- read_sf(str_c(dfo_path, "DFO_NMFS_CRSBND_area.geojson"))
 
 ##### Import Functions  ####
 
-# loading specific variables
+# Loading Bias Corrected Data for Specific Variables and from Each Scenario
+# Bias Corrections Performed in :
+# CMIP6_processing/R/CMIP_SODA_bias_corrections.R
+# CMIP6_processing/R/CMIP_OISST_bias_corrections.R
+
 load_bias_corrected <- function(cmip_var, ssp_scenario){
   
   # bias corrected data folders
@@ -95,7 +99,10 @@ load_bias_corrected <- function(cmip_var, ssp_scenario){
 }
 
 
-# load mean/5th/95th from ensembles
+
+
+
+# Load the mean/5th/95th from ensembles, using a variable and a scenario
 load_ensemble_percentiles <- function(cmip_var, ssp_scenario){
   
   # ensemble folders
@@ -168,6 +175,8 @@ ensemble_var <- load_ensemble_percentiles(cmip_var = var_select, ssp_scenario = 
 
 ####  Crop/Mask Functions  ####
 
+
+
 # 1.
 # Function to mask rasters using shape
 mask_shape <- function(in_ras, in_mask){# Check extents
@@ -184,6 +193,10 @@ mask_shape <- function(in_ras, in_mask){# Check extents
   r1 <- raster::crop(x = in_ras, y = in_mask)
   r2 <- raster::mask(x = r1, mask = in_mask)
   return(r2)}
+
+
+
+
 
 
 
@@ -219,16 +232,18 @@ crsbnd_percentiles <- map(observed_var, ~mask_shape(in_ras = .x, in_mask = trawl
 # crsbnd_timeseries<- purrr::map(crsbnd_masked[1], .f = stack_to_df(month_stack = .x, var_name = var_select))
 
 # Works exactly fine outside of the function...
-scenarios_test <- map_dfr(crsbnd_masked, ~raster::cellStats(.x, "mean", na.rm = T) %>% 
-                 as.data.frame()%>% 
-                 tibble::rownames_to_column() %>% 
-                 setNames(c("date", var_select)) %>% 
-                 dplyr::mutate(
-                   date = str_remove(date, "X"),
-                   date = str_replace_all(date, "[.]", "-"),
-                   date = as.Date(str_c(date, "-15")),
-                   year = lubridate::year(date)),
-                 .id = "cmip_id") %>% 
+scenarios_test <- map_dfr(
+  crsbnd_masked, 
+  ~raster::cellStats(.x, "mean", na.rm = T) %>% 
+    as.data.frame()%>% 
+    tibble::rownames_to_column() %>% 
+    setNames(c("date", var_select)) %>% 
+    dplyr::mutate(
+      date = str_remove(date, "X"),
+      date = str_replace_all(date, "[.]", "-"),
+      date = as.Date(str_c(date, "-15")),
+      year = lubridate::year(date)),
+  .id = "cmip_id") %>% 
   mutate(Region = "Joint NMFS-DFO Survey Area")
 
 

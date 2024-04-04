@@ -46,7 +46,8 @@ library(knitr)
 box_paths  <- research_access_paths()
 res_path   <- box_paths$res
 oisst_path <- box_paths$oisst_mainstays
-cmip_path  <- shared.path("unix", "RES_Data", "CMIP6")
+#cmip_path  <- shared.path("unix", "RES_Data", "CMIP6")
+cmip_path  <- cs_path("RES_Data", "CMIP6")
 
 #### Set theme  ####
 theme_set(theme_minimal())
@@ -327,9 +328,10 @@ The SODA climatologies were run in xarray in the `soda_climatology.py` file.
 ```{r import ref climatology}
 
 # Load SODA Climatology
-soda_clim <- import_soda_clim(soda_var = pick_var, 
-                              os.use = "unix", 
-                              start_yr = "1985")
+soda_clim <- import_soda_clim(
+  soda_var = pick_var, 
+  box_location = "cloudstorage", 
+  start_yr = "1985")
 
 
 

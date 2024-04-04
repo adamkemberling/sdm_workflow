@@ -51,16 +51,16 @@ cmip_date_key <- list(
 #' @description Load OISST climatology from box as a raster stack
 #'
 #' @param climatology_period Choices: "1991-2020" or "1982-2011"
-#' @param os.use Specification for gmRi::shared.path for Mac/Windows paths
+#' @param box_location Specification for gmRi boxpath_switch
 #'
 #' @return Rster stack of OISST Daily Climatology cropped to study area
 
 import_oisst_clim <- function(climatology_period = "1985-2014", 
-                              os.use = "unix"){
+                              box_location = "cloudstorage"){
   
   # Path to OISST on Box
-  oisst_path <- shared.path(os.use = os.use, group = "RES_Data", 
-                            folder = "OISST/oisst_mainstays/daily_climatologies/")
+  boxpath_fun <- boxpath_switch(box_location = box_location)
+  oisst_path <- boxpath_fun("RES_Data", "OISST/oisst_mainstays/daily_climatologies/")
   
   # Path to specific climatology
   climatology_path <- switch(climatology_period,
@@ -88,16 +88,18 @@ import_oisst_clim <- function(climatology_period = "1985-2014",
 #' @description Load the collection of CMIP6 Scenarios for a selection of variables.
 #'
 #' @param cmip_var Indicaation of what variable you want to load with raster::stack()
+#' @param box_location Specification for gmRi boxpath_switch
 #'
 #' @return
 #' @export
 #'
 #' @examples
 import_cmip_collection <- function(cmip_var = c("bot_sal", "bot_temp", "surf_temp", "surf_sal"),
-                                   os.use = "unix"){
+                                   box_location = "cloudstorage"){
   
   # CMIP Folder Path
-  cmip_path  <- shared.path(os.use, "RES_Data", "CMIP6")
+  boxpath_fun <- boxpath_switch(box_location = box_location)
+  cmip_path  <- boxpath_fun("RES_Data", "CMIP6")
   
   
   # Set folder path to single variable extractions
@@ -198,23 +200,25 @@ months_from_clim <- function(clim_source, month_layer_key = NULL){
 #' are "surf_sal", "surf_temp", "bot_sal", "bot_temp". Area is also cropped to study area.
 #'
 #' @param soda_var variable name to use when stacking data
-#' @param os.use windows mac toggle for box path
+#' @param box_location Specification for gmRi boxpath_switch
 #' @param start_yr Starting year for climatology, 1985 or 1990
 #'
 #' @return Raster stack for monthly climatology, cropped to study area
 #' @export
 #'
 #' @examples
-import_soda_clim <- function(soda_var = c("surf_sal", "surf_temp", "bot_sal", "bot_temp"),
-                             os.use = "unix",
-                             start_yr = "1985"){
+import_soda_clim <- function(
+    soda_var = c("surf_sal", "surf_temp", "bot_sal", "bot_temp"),
+    start_yr = "1985",
+    box_location = "cloudstorage"){
   
   # Variable key
   var_key <- c("bot_sal" = "bottom salinity", "bot_temp" = "bottom temperature",
                "surf_sal" = "surface salinity", "surf_temp" = "surface temperature")
   
   # Box path to SODA data
-  soda_path <- shared.path(os.use = os.use, group = "RES_Data", folder = "SODA")
+  boxpath_fun <- boxpath_switch(box_location = box_location)
+  soda_path <- boxpath_fun("RES_Data", "SODA")
   
   # Climatology Path
   clim_path <- switch(start_yr,
@@ -733,68 +737,45 @@ lsos <- function(..., n = 10) {
 #' }
 
 
-#' #' @title Load CMIP6 NetCDF data.
-#' #' 
-#' #' @description Load CMIP6 data off BOX by path to specific file(s) in RES_Data/CMIP6/.
-#' #' Default loads the CMIP6 SST subset used for testing. 
-#' #'
-#' #' @param cmip_file Either "tester", or path to cmip stack within RES_Data/CMIP6
-#' #'
-#' #' @return Raster stack of CMIP Data, cropped to study area.
-#' #'
-#' import_cmip_sst <- function(cmip_file = "tester"){
-#'   
-#'   # General path to all the cmip data on Box
-#'   cmip_path    <- shared.path(os.use = "unix", group = "RES_Data", folder = "CMIP6/")
-#'   
-#'   # Load the stack(s) cropped to the study area
-#'   if(cmip_file == "tester"){
-#'     message(paste0("Loading CMIP6 File: tos_Omon_CanESM5_historical_r1i1p2f1_gn_195501-201412.nc.1x1.nc"))
-#'     cmip_full   <- stack(paste0(cmip_path, "TestFiles/tos_Omon_CanESM5_historical_r1i1p2f1_gn_195501-201412.nc.1x1.nc"))
-#'     cmip_cropped <- crop(cmip_full, study_area)
-#'   
-#'     } else if(length(cmip_file) == 1){
-#'         message(paste0("Loading CMIP6 File: ", cmip_file))
-#'         cmip_full <- stack(paste0(cmip_path, cmip_file))
-#'         cmip_cropped <- crop(cmip_full, study_area)
-#'   
-#'       } else if(length(cmip_file > 1)){
-#'           cmip_cropped <- map(cmip_file, function(x){
-#'             message(paste0("Loading Multiple CMIP Files, Returning List"))
-#'             cmip_full   <- stack(paste0(cmip_path, x))
-#'             cmip_cropped <- crop(cmip_full, study_area)}) %>% 
-#'             setNames(cmip_file)
-#'   }
-#'   
-#'   
-#'   return(cmip_cropped)
-#'   
-#' }
-#' 
-#' 
-#' 
-#' # Never used
-#' #' # Re-stack all the bias-corrected cmip datasets by time step
-#' # stores years in a list
-#' 
-#' 
-#' #' @title Re-Stack CMIP Delta Bias Corrected Data
-#' #' 
-#' #' @description Takes bias corrected data sources and re-stacks them to align on the same 
-#' #' time steps. This sets up the stacks for assessing 5th and 95th percentile and mean data.
-#' #'
-#' #' @param cmip_inputs 
-#' #' 
-#' #'
-#' #' @return
-#' #' 
-#' restack_cmip_projections <- function(cmip_inputs = cmip_delta_bias_corrected){
-#'   
-#'   # Get the number of total time steps from a given stack
-#'   
-#'   
-#'   # map around that length and pull out the layers of each
-#'   # Put them in stacks by time step, try to keep the names of their sources?
-#'   
-#'   
-#' }
+#' @title Load CMIP6 NetCDF data.
+#'
+#' @description Load CMIP6 data off BOX by path to specific file(s) in RES_Data/CMIP6/.
+#' Default loads the CMIP6 SST subset used for testing.
+#'
+#' @param cmip_file Either "tester", or path to cmip stack within RES_Data/CMIP6
+#' @param box_location Specification for gmRi boxpath_switch
+#'
+#' @return Raster stack of CMIP Data, cropped to study area.
+#'
+import_cmip_sst <- function(cmip_file = "tester", box_location = "cloudstorage"){
+
+  # General path to all the cmip data on Box
+  boxpath_fun <- boxpath_switch(box_location = box_location)
+  cmip_path    <- boxpath_fun("RES_Data", "CMIP6")
+
+  # Load the stack(s) cropped to the study area
+  if(cmip_file == "tester"){
+    message(paste0("Loading CMIP6 File: tos_Omon_CanESM5_historical_r1i1p2f1_gn_195501-201412.nc.1x1.nc"))
+    cmip_full   <- stack(paste0(cmip_path, "TestFiles/tos_Omon_CanESM5_historical_r1i1p2f1_gn_195501-201412.nc.1x1.nc"))
+    cmip_cropped <- crop(cmip_full, study_area)
+
+    } else if(length(cmip_file) == 1){
+        message(paste0("Loading CMIP6 File: ", cmip_file))
+        cmip_full <- stack(paste0(cmip_path, cmip_file))
+        cmip_cropped <- crop(cmip_full, study_area)
+
+      } else if(length(cmip_file > 1)){
+          cmip_cropped <- map(cmip_file, function(x){
+            message(paste0("Loading Multiple CMIP Files, Returning List"))
+            cmip_full   <- stack(paste0(cmip_path, x))
+            cmip_cropped <- crop(cmip_full, study_area)}) %>%
+            setNames(cmip_file)
+  }
+
+
+  return(cmip_cropped)
+
+}
+
+
+

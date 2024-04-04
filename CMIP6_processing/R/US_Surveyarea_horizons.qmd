@@ -200,9 +200,10 @@ ssp5_ts <- imap(var_list, function(x, y){
 #| label: convert-ensembles-to-monthly
 
 # Make monthly Averages
+# Make the individual timelines annual/monthly timelines
 
 
-# make the individual timelines annual/monthly timelines
+# SSP1 Runs
 ssp1_monthly <- map(ssp1_ts, function(x){
   x %>% 
     mutate(month = month(date)) %>% 
@@ -214,8 +215,7 @@ ssp1_monthly <- map(ssp1_ts, function(x){
 })
 
 
-
-# make the individual timelines annual/monthly timelines
+# SSP5 Runs
 ssp5_monthly <- map(ssp5_ts, function(x){
   x %>% 
     mutate(month = month(date)) %>% 
@@ -314,7 +314,9 @@ modern_climate_annual <- references_combined %>%
 # Get the distance from the baseline mean
 modern_comparison_annual <- ssp_both %>%
   # filter(year>= 2000) %>%
-  pivot_longer(cols = c(`5th Percentile`, `Ensemble Mean`, `95th Percentile`), names_to = "ensemble_statistic", values_to = "ssp_val") %>% 
+  pivot_longer(
+    cols = c(`5th Percentile`, `Ensemble Mean`, `95th Percentile`), 
+    names_to = "ensemble_statistic", values_to = "ssp_val") %>% 
   mutate(var = case_when(
     variable == "Surface Temperature" ~ "surf_temp",
     variable == "Bottom Temperature" ~ "bot_temp",
@@ -352,10 +354,13 @@ modern_climate_monthly <- references_combined %>%
 
 
 
-# Get the distance from the baseline mean
+# Get the distance from the baseline mean for monthly data
 modern_comparison_monthly <- ssp_both %>%
   # filter(year>= 2000) %>%
-  pivot_longer(cols = c(`5th Percentile`, `Ensemble Mean`, `95th Percentile`), names_to = "ensemble_statistic", values_to = "ssp_val") %>% 
+  pivot_longer(
+    cols = c(`5th Percentile`, `Ensemble Mean`, `95th Percentile`), 
+    names_to = "ensemble_statistic", 
+    values_to = "ssp_val") %>% 
   mutate(var = case_when(
     variable == "Surface Temperature" ~ "surf_temp",
     variable == "Bottom Temperature" ~ "bot_temp",
@@ -374,6 +379,27 @@ modern_comparison_monthly <- ssp_both %>%
 
 
 ```
+
+
+
+### Exporting
+
+```{r}
+# # These timeseries are pretty useful, going to save them out for use elsewhere:
+# 
+# mills_path <- cs_path(box_group = "mills")
+# project_box_path <- str_c(mills_path, "Projects/COCA19_Projections/")
+# projection_res_path <- paste0(project_box_path, "data/bias_corrected_env_projections/")
+# 
+# # Baseline Period Data
+# write_csv(references_combined, str_c(projection_res_path, "oisst_soda_regional_timeseries.csv"))
+# 
+# # SSP scenario for regions
+# write_csv(ssp_both, str_c(projection_res_path, "bias_corrected_ssps_regional_timeseries.csv"))
+
+
+```
+
  
 
 
@@ -411,6 +437,132 @@ find_crossing <- function(df, col_x, date_col, threshold){
 
 ```
  
+ 
+ 
+ 
+# Comparing Projected Climates to Observed Conditions
+
+The following figure displays how SSP5 compares to observed actual SST measurements and the predicted future conditions through 2100. 
+
+```{r}
+
+deg_c <- "\u00b0C"
+
+# Reshape Joint Survey Timeseries -  why duplicated?
+ssp5_wide <- ssp_both %>% 
+  filter(scenario == "SSP5: 8.5", 
+         variable == "Surface Temperature") %>% 
+  group_by(year, variable) %>% 
+  summarise(across(c(`5th Percentile`, `95th Percentile`, `Ensemble Mean`), ~mean(.x, na.rm = T))) %>% 
+  ungroup()
+
+# Observational Data
+obs_annual <- references_combined  %>% 
+  group_by(year) %>% 
+  summarise(across(c(surf_temp, bot_temp, surf_sal, bot_sal), mean)) %>% 
+  ungroup()  
+
+
+# What does it look like if I try and overlay some benchmarks... and did they change?
+# need to subtract the baseline to get thresholds right
+#find_crossing(, col_x = "5th Percentile", date_col = "year", threshold = 6)
+
+# Original: used in coca reports
+# label_df <- data.frame(
+#       x = c(2045, 2062, 2081, 2099),
+#       y = c(17),
+#       label = str_c("+", c(1:4), deg_c))
+
+# Or put labels on the line
+label_df <- filter(ssp5_wide, year %in% c(2045, 2062, 2081, 2099)) %>% 
+  mutate(
+    label = case_when(
+      year == 2045 ~ str_c("+1", deg_c),
+      year == 2062 ~ str_c("+2", deg_c),
+      year == 2081 ~ str_c("+3", deg_c),
+      year == 2099 ~ str_c("+4", deg_c)), 
+    y = `Ensemble Mean`,
+    x = year)
+
+
+# Plot where real life sits against the climate models
+ussurvey_projected <- ggplot() +
+  # Confidence Intervals
+  geom_ribbon(
+    data = ssp5_wide,
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, 
+        fill = "SSP5: 8.5"),
+    color = "white", alpha = 0.2) +
+  geom_line(
+    data = ssp5_wide,
+    aes(year, `Ensemble Mean`, color = "SSP5: 8.5"),
+    linewidth = 0.8, key_glyph = "timeseries") +
+  # Observational Data
+  geom_line(
+    data = obs_annual, 
+    aes(year, surf_temp, color = "Observed"),
+    linewidth = 1, key_glyph = "timeseries") +
+  # Threshold labels:
+  # threshold error
+  geom_point(
+    data = label_df,
+    aes(x, y), shape = "|", size = 4) +
+  geom_text(
+    data = label_df, size =5,
+    aes(x,y, label = label), fontface = "bold", vjust = -1) +
+  scale_fill_gmri(reverse = T) +
+  scale_color_manual(values = c("black", gmri_cols("orange"))) +
+  scale_x_continuous(limits = c(1980, 2104),
+                     expand = expansion(add = c(0,0))) +
+  scale_y_continuous(labels = scales::label_number(suffix = deg_c)) +
+  theme_gmri() +
+  guides(
+    color = guide_legend(
+      order = 1, nrow = 2, title.position = "top", title.hjust = 0.5), 
+    fill = guide_legend(
+      order = 2, title.position = "top", title.hjust = 0)) +
+  labs(fill = "Range of Climate Model Uncertainty\n(5th-95th Percentiles)", 
+       color = "SST:", 
+       x = "", 
+       y = str_c("Average Annual Sea Surface Temperature"),
+       subtitle = "Northeast U.S.",
+       title = "Observed and Projected SST Under Ensemble Climate Scenario") +
+  theme(legend.box = "horizontal",
+        legend.box.background = element_rect(color = "black"),
+        legend.title = element_text(size = 14, family = "Avenir"),
+        legend.text = element_text(size = 12, family = "Avenir"),
+        legend.position = c(0.25, .81),
+        axis.title = element_text(size = 14, family = "Avenir"),
+        axis.text = element_text(size = 12, family = "Avenir"),
+        plot.title = element_text(size = 16, family = "Avenir"),
+        plot.subtitle = element_text(size = 14, family = "Avenir"),
+        strip.text = element_text(family = "Avenir"))
+
+
+ussurvey_projected 
+
+
+# # Save image for community reports
+# # Prevents tiny fonts when saving
+showtext::showtext_opts(dpi=300)
+ggsave(
+  filename = str_c(
+    cs_path("mills", "Projects/COCA19/Community_Analyses/Report Graphics/Climate_Projection"),
+    "NortheastUS_Scenario_vs_Obs_sst.png"),
+  #filename = here::here("local_scrap/JointSurvey_Scenario_vs_Obs_sst_wide.png"),
+  plot = ussurvey_projected,
+  dpi = 300,
+  bg = "white",
+  width = 5.4,
+  height = 2.5,
+  units = "in", scale = 2)
+
+
+```
+
+
+
+ 
 
 # Changes in Time
 
@@ -420,6 +572,12 @@ find_crossing <- function(df, col_x, date_col, threshold){
 
 
 ```{r}
+# Original: used in coca reports
+label_df <- data.frame(
+      x = c(2045, 2062, 2081, 2099),
+      y = c(17),
+      label = str_c("+", c(1:4), deg_c))
+
 
 modern_comparison_annual %>% 
   filter(
@@ -523,10 +681,11 @@ modern_comparison_annual %>%
 
 
 
+
+
+
+
 # Contrasting Two SSP Scenarios
-
-
-
 
 
 ```{r}
