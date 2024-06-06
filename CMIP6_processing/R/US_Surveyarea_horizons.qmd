@@ -98,6 +98,8 @@ greenland   <- ne_states(country = "greenland", returnclass = "sf")
 xlimz <- c(-76, -57)
 ylimz <- c(35, 48)
 
+deg_c <- "\u00b0C"
+
 ```
 
 
@@ -269,13 +271,15 @@ ssp_both <- bind_rows(ssp1_26, ssp5_85) %>%
 
 Should add a table or text of what the average conditions were...
 
+Baseline conditions are referenced against 2010-2019 for both environmental conditions and baseline fish species availability.
+
 
 ```{r}
 #| label: load-observational-data-timeseries
 
 
 # Monthly averages have been prepared in: 
-# helper01_regional_timeseries_construction.R
+# CMIP6_processing/R/helper01_regional_timeseries_construction.R
 
 references_combined <- read_csv(
   file = str_c(res_path, "CMIP6/Bias_Correction_Checking/bias_correction_reference_dataset_monthly_regional_means.csv"),
@@ -382,7 +386,7 @@ modern_comparison_monthly <- ssp_both %>%
 
 
 
-### Exporting
+### Exporting Projection Timeseries
 
 ```{r}
 # # These timeseries are pretty useful, going to save them out for use elsewhere:
@@ -402,59 +406,27 @@ modern_comparison_monthly <- ssp_both %>%
 
  
 
-
-```{r}
-#| label: find-threshold-cross-function
-
-# Function to check a column is over some threshold, arranged by some other column for time
-find_crossing <- function(df, col_x, date_col, threshold){
-  col_x <- sym(col_x)
-  date_col <- sym(date_col)
-  
-  # Are any over?
-  all_vals <- df %>% pull({{col_x}})
-  any_t <- any(all_vals > threshold, na.rm = T)
-  if(any_t == FALSE){return("Never")}
-  
-  # If so then find it
-  return_value = df %>%
-    arrange({{date_col}}) %>%
-    filter({{col_x}} > threshold) %>%
-    slice(1) %>% 
-    pull(year)
-  return(return_value)
-}
-
-# # Double check that this works
-# # has different scenario values than the jointsurvey quarto
-# modern_comparison_annual %>% 
-#     filter(
-#       Region == "US Survey Area",
-#       scenario == "SSP5: 8.5",
-#       ensemble_statistic == "5th Percentile", 
-#       var == "surf_temp") %>% 
-#     find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year") 
-
-```
- 
- 
- 
  
 # Comparing Projected Climates to Observed Conditions
+
+
 
 The following figure displays how SSP5 compares to observed actual SST measurements and the predicted future conditions through 2100. 
 
 ```{r}
+#| label: ssp5-projection-graphic-coca
+#| eval: true
 
-deg_c <- "\u00b0C"
 
 # Reshape Joint Survey Timeseries -  why duplicated?
 ssp5_wide <- ssp_both %>% 
-  filter(scenario == "SSP5: 8.5", 
-         variable == "Surface Temperature") %>% 
+  filter(scenario == "SSP5: 8.5") %>% 
   group_by(year, variable) %>% 
   summarise(across(c(`5th Percentile`, `95th Percentile`, `Ensemble Mean`), ~mean(.x, na.rm = T))) %>% 
   ungroup()
+
+# Just sst
+ssp5_wide_sst <- filter(ssp5_wide, variable == "Surface Temperature")
 
 # Observational Data
 obs_annual <- references_combined  %>% 
@@ -474,7 +446,9 @@ obs_annual <- references_combined  %>%
 #       label = str_c("+", c(1:4), deg_c))
 
 # Or put labels on the line
-label_df <- filter(ssp5_wide, year %in% c(2045, 2062, 2081, 2099)) %>% 
+label_df <- filter(
+  ssp5_wide_sst, 
+  year %in% c(2045, 2062, 2081, 2099)) %>% 
   mutate(
     label = case_when(
       year == 2045 ~ str_c("+1", deg_c),
@@ -486,20 +460,21 @@ label_df <- filter(ssp5_wide, year %in% c(2045, 2062, 2081, 2099)) %>%
 
 
 # Plot where real life sits against the climate models
+
 ussurvey_projected <- ggplot() +
   # Confidence Intervals
   geom_ribbon(
-    data = ssp5_wide,
-    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, 
-        fill = "SSP5: 8.5"),
+    data = ssp5_wide_sst,
+    aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`,
+        fill = "SSP5-8.5"),
     color = "white", alpha = 0.2) +
   geom_line(
-    data = ssp5_wide,
-    aes(year, `Ensemble Mean`, color = "SSP5: 8.5"),
+    data = ssp5_wide_sst,
+    aes(year, `Ensemble Mean`, color = "SSP5-8.5"),
     linewidth = 0.8, key_glyph = "timeseries") +
   # Observational Data
   geom_line(
-    data = obs_annual, 
+    data = obs_annual,
     aes(year, surf_temp, color = "Observed"),
     linewidth = 1, key_glyph = "timeseries") +
   # Threshold labels:
@@ -508,7 +483,7 @@ ussurvey_projected <- ggplot() +
     data = label_df,
     aes(x, y), shape = "|", size = 4) +
   geom_text(
-    data = label_df, size =5,
+    data = label_df, size = 5.5,
     aes(x,y, label = label), fontface = "bold", vjust = -1) +
   scale_fill_gmri(reverse = T) +
   scale_color_manual(values = c("black", gmri_cols("orange"))) +
@@ -518,37 +493,44 @@ ussurvey_projected <- ggplot() +
   theme_gmri() +
   guides(
     color = guide_legend(
-      order = 1, nrow = 2, title.position = "top", title.hjust = 0.5), 
+      order = 1, nrow = 2, title.position = "top", title.hjust = 0.5),
     fill = guide_legend(
       order = 2, title.position = "top", title.hjust = 0)) +
-  labs(fill = "Range of Climate Model Uncertainty\n(5th-95th Percentiles)", 
-       color = "SST:", 
-       x = "", 
-       y = str_c("Average Annual Sea Surface Temperature"),
+  labs(fill = "Range of Climate Model Uncertainty\n(5th-95th Percentiles)",
+       color = "SST:",
+       x = NULL,
+       y = str_c("Average Annual\nSea Surface Temperature"),
        subtitle = "Northeast U.S.",
-       title = "Observed and Projected SST Under Ensemble Climate Scenario") +
+       title = "Observed and Projected Sea Surface Temperatures") +
   theme(legend.box = "horizontal",
         legend.box.background = element_rect(color = "black"),
-        legend.title = element_text(size = 14, family = "Avenir"),
-        legend.text = element_text(size = 12, family = "Avenir"),
-        legend.position = c(0.25, .81),
-        axis.title = element_text(size = 14, family = "Avenir"),
-        axis.text = element_text(size = 12, family = "Avenir"),
-        plot.title = element_text(size = 16, family = "Avenir"),
-        plot.subtitle = element_text(size = 14, family = "Avenir"),
+        legend.title = element_text(size = 16, family = "Avenir"),
+        legend.text = element_text(size = 14, family = "Avenir"),
+        legend.position = c(0.3, .81),
+        axis.title.y = element_text(size = 18, family = "Avenir"),
+        axis.text = element_text(size = 14, family = "Avenir"),
+        plot.title = element_text(size = 18, family = "Avenir"),
+        plot.subtitle = element_text(size = 16, family = "Avenir"),
         strip.text = element_text(family = "Avenir"))
 
 
-ussurvey_projected 
+ussurvey_projected
+```
 
+
+
+```{r}
+#| label: saving-ssp5-projection-graphic-coca
 
 # # Save image for community reports
 # # Prevents tiny fonts when saving
 showtext::showtext_opts(dpi=300)
+
+
 ggsave(
   filename = str_c(
     cs_path("mills", "Projects/COCA19/Community_Analyses/Report Graphics/Climate_Projection"),
-    "NortheastUS_Scenario_vs_Obs_sst.png"),
+    "NortheastUS_Scenario_vs_Obs_sst_big.png"),
   #filename = here::here("local_scrap/JointSurvey_Scenario_vs_Obs_sst_wide.png"),
   plot = ussurvey_projected,
   dpi = 300,
@@ -562,9 +544,111 @@ ggsave(
 
 
 
+
+```{r}
+#| eval: false
+#| label: skinny-version
+
+
+# ussurvey_projected <- ggplot() +
+#   # Confidence Intervals
+#   geom_ribbon(
+#     data = ssp5_wide_sst,
+#     aes(x = year, ymin = `5th Percentile`, ymax = `95th Percentile`, 
+#         fill = "SSP5-8.5"),
+#     color = "white", alpha = 0.2) +
+#   geom_line(
+#     data = ssp5_wide_sst,
+#     aes(year, `Ensemble Mean`, color = "SSP5-8.5"),
+#     linewidth = 0.8, key_glyph = "timeseries") +
+#   # Observational Data
+#   geom_line(
+#     data = obs_annual, 
+#     aes(year, surf_temp, color = "Observed"),
+#     linewidth = 1, key_glyph = "timeseries") +
+#   # Threshold labels:
+#   # threshold error
+#   geom_point(
+#     data = label_df,
+#     aes(x, y), shape = "|", size = 4) +
+#   geom_text(
+#     data = label_df, size = 5.5,
+#     aes(x,y, label = label), fontface = "bold", vjust = -1) +
+#   scale_fill_gmri(reverse = T) +
+#   scale_color_manual(values = c("black", gmri_cols("orange"))) +
+#   scale_x_continuous(limits = c(1980, 2104),
+#                      expand = expansion(add = c(0,0))) +
+#   scale_y_continuous(labels = scales::label_number(suffix = deg_c)) +
+#   theme_gmri() +
+#   guides(
+#     color = guide_legend(
+#       order = 1, nrow = 2, title.position = "top", title.hjust = 0.5), 
+#     fill = guide_legend(
+#       order = 2, title.position = "top", title.hjust = 0)) +
+#   labs(fill = "Range of Climate Model Uncertainty\n(5th-95th Percentiles)", 
+#        color = "SST:", 
+#        x = NULL, 
+#        y = str_c("Average Annual Sea Surface Temperature"),
+#        subtitle = "Northeast U.S.",
+#        title = "Observed and Projected SST") +
+#   theme(legend.box = "horizontal",
+#         legend.box.background = element_rect(color = "black"),
+#         legend.title = element_text(size = 16, family = "Avenir"),
+#         legend.text = element_text(size = 14, family = "Avenir"),
+#         legend.position = c(0.38, .88),
+#         axis.title.y = element_text(size = 16, family = "Avenir"),
+#         axis.text = element_text(size = 14, family = "Avenir"),
+#         plot.title = element_text(size = 18, family = "Avenir"),
+#         plot.subtitle = element_text(size = 16, family = "Avenir"),
+#         strip.text = element_text(family = "Avenir"),
+#         plot.margin = margin(2,2,2,2))
+# 
+# ussurvey_projected
+# 
+# 
+# # And save?
+# ggsave(
+#   filename = str_c(
+#     cs_path("mills", "Projects/COCA19/Community_Analyses/Report Graphics/Climate_Projection"),
+#     "NortheastUS_Scenario_vs_Obs_sst_skinny.png"),
+#   plot = ussurvey_projected,
+#   dpi = 300,
+#   bg = "white",
+#   width = 4,
+#   height = 2.5,
+#   units = "in", scale = 2)
+
+```
+
+
+
+## Mid-Century Outlooks
+
+For each climate scenario, what are the anticipated ranges in projected temp/salinity at the mid-century mark and at 2100?
+
+```{r}
+#| eval: false
+
+
+# Actual
+ssp5_wide_sst %>% 
+  filter(year %in% c(2050, 2100))
+
+# Pre industrial
+# 1850-1900
+ssp5_wide
+
+# Baseline observed
+obs_annual %>% filter(year %in% c(2010:2019)) %>% 
+  summarise(across(!year, \(x) mean(x, na.rm = T)))
+
+```
+
+
+
  
 
-# Changes in Time
+# Changes in Time Compared to Baseline Period
 
 ::: {.panel-tabset}
 
@@ -686,6 +770,46 @@ modern_comparison_annual %>%
 
 
 # Contrasting Two SSP Scenarios
+
+
+
+
+```{r}
+#| label: find-threshold-cross-function
+
+# Function to check a column is over some threshold, arranged by some other column for time
+find_crossing <- function(df, col_x, date_col, threshold){
+  col_x <- sym(col_x)
+  date_col <- sym(date_col)
+  
+  # Are any over?
+  all_vals <- df %>% pull({{col_x}})
+  any_t <- any(all_vals > threshold, na.rm = T)
+  if(any_t == FALSE){return("Never")}
+  
+  # If so then find it
+  return_value = df %>%
+    arrange({{date_col}}) %>%
+    filter({{col_x}} > threshold) %>%
+    slice(1) %>% 
+    pull(year)
+  return(return_value)
+}
+
+# # Double check that this works
+# # has different scenario values than the jointsurvey quarto
+# modern_comparison_annual %>% 
+#     filter(
+#       Region == "US Survey Area",
+#       scenario == "SSP5: 8.5",
+#       ensemble_statistic == "5th Percentile", 
+#       var == "surf_temp") %>% 
+#     find_crossing(threshold = 0.5, col_x = "clim_anom", date_col = "year") 
+
+```
+ 
+ 
+ 
 
 
 ```{r}
